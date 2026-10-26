@@ -1,87 +1,135 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
-const QuerySchema = z.object({
-  q: z.string().min(2).max(100),
-  lat: z.coerce.number().min(-90).max(90),
-  lng: z.coerce.number().min(-180).max(180),
-  radio: z.coerce.number().min(500).max(10000).default(2000),
-  limite: z.coerce.number().min(1).max(50).default(20),
+const SearchBodySchema = z.object({
+  q: z.string().min(1).max(200),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  radius_m: z.number().int().min(100).max(50000).default(5000),
+  limit: z.number().int().min(1).max(50).default(20),
 });
 
-async function embedQuery(text: string): Promise<number[] | null> {
+type SearchBody = z.infer<typeof SearchBodySchema>;
+
+interface SearchResultRow {
+  producto_id: string;
+  tienda_id: string;
+  tienda_nombre: string;
+  nombre: string;
+  precio: number | null;
+  moneda: string;
+  categoria: string;
+  descripcion: string | null;
+  distance_m: number;
+  similarity: number;
+}
+
+interface EmbeddingsResponse {
+  data: { index: number; embedding: number[] }[];
+}
+
+// Lazy: module import must stay side-effect free for `next build`.
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+}
+
+async function embedQuery(q: string): Promise<number[] | null> {
   try {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15_000),
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-        input: text,
+        input: q,
       }),
     });
     if (!res.ok) return null;
-    const json = await res.json();
-    return json.data[0].embedding as number[];
+    const json = (await res.json()) as EmbeddingsResponse;
+    const embedding = json.data
+      .slice()
+      .sort((a, b) => a.index - b.index)[0]?.embedding;
+    return embedding ?? null;
   } catch {
     return null;
   }
 }
 
-export async function GET(req: NextRequest) {
-  const parsed = QuerySchema.safeParse(
-    Object.fromEntries(req.nextUrl.searchParams),
-  );
-  if (!parsed.success)
-    return NextResponse.json(
-      { error: "Parámetros inválidos", details: parsed.error.flatten() },
-      { status: 400 },
-    );
-
-  const { q, lat, lng, radio, limite } = parsed.data;
-  const embedding = await embedQuery(q);
-
-  // Primary: Hybrid Geo + Vector Search
-  if (embedding) {
-    const { data, error } = await supabaseAdmin.rpc(
-      "buscar_productos_cercanos",
-      {
-        query_embedding: `[${embedding.join(",")}]`,
-        lat,
-        lng,
-        radio_metros: radio,
-        limite,
-      },
-    );
-    if (!error && data) {
-      return NextResponse.json(
-        { source: "semantic", results: data },
-        {
-          headers: {
-            "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
-          },
-        },
-      );
-    }
+export async function POST(req: NextRequest) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  // Fallback: Full-text (spanish) + distance
-  const { data, error } = await supabaseAdmin
-    .from("productos")
-    .select(
-      "id, nombre, precio, categoria, descripcion, tiendas!inner(nombre, ubicacion)",
-    )
-    .textSearch("fts", q, { type: "websearch", config: "spanish" })
-    .eq("disponible", true)
-    .limit(limite);
+  const parsed = SearchBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid request body", details: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+  const { q, lat, lng, radius_m, limit }: SearchBody = parsed.data;
 
-  if (error)
-    return NextResponse.json({ error: "Error en búsqueda" }, { status: 500 });
-  return NextResponse.json({ source: "fts", results: data });
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      { error: "busqueda semantica no disponible" },
+      { status: 503 },
+    );
+  }
+
+  const embedding = await embedQuery(q);
+  if (!embedding) {
+    return NextResponse.json(
+      { error: "busqueda semantica no disponible" },
+      { status: 503 },
+    );
+  }
+
+  const supabase = getSupabase();
+  const { data, error } = await supabase.rpc("match_productos", {
+    query_embedding: embedding,
+    match_lat: lat,
+    match_lng: lng,
+    radius_m,
+    match_count: limit,
+  });
+
+  if (error) {
+    console.error("[BarrioAI Search Error]", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+
+  const rows = (data ?? []) as SearchResultRow[];
+  const results: SearchResultRow[] = rows.map((r) => ({
+    producto_id: r.producto_id,
+    tienda_id: r.tienda_id,
+    tienda_nombre: r.tienda_nombre,
+    nombre: r.nombre,
+    precio: r.precio,
+    moneda: r.moneda,
+    categoria: r.categoria,
+    descripcion: r.descripcion,
+    distance_m: r.distance_m,
+    similarity: r.similarity,
+  }));
+
+  return NextResponse.json(
+    { results, count: results.length },
+    { status: 200 },
+  );
 }

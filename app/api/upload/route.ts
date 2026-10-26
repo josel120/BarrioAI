@@ -29,12 +29,14 @@ interface ChatCompletionResponse {
   choices: { message: { content: string } }[];
 }
 
-// --- Clients (Singleton) ---
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } },
-);
+// --- Clients (lazy: module import must stay side-effect free for `next build`) ---
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } },
+  );
+}
 
 // --- Helpers ---
 async function fileToDataUrl(file: File): Promise<string> {
@@ -107,10 +109,10 @@ async function generateEmbeddings(
   });
 
   if (!res.ok) return texts.map(() => null); // Graceful degradation: save without vector
-  const json = await res.json();
+  const json = (await res.json()) as { data: { index: number; embedding: number[] }[] };
   return json.data
-    .sort((a: any, b: any) => a.index - b.index)
-    .map((d: any) => d.embedding as number[]);
+    .sort((a, b) => a.index - b.index)
+    .map((d) => d.embedding);
 }
 
 // --- Route Handler ---
@@ -143,6 +145,8 @@ export async function POST(req: NextRequest) {
         { error: "Invalid geolocation coordinates" },
         { status: 400 },
       );
+
+    const supabase = getSupabase();
 
     // 2. Parallel Execution: Llama Inference + Storage Upload (Low Latency)
     const dataUrlPromise = fileToDataUrl(image);
