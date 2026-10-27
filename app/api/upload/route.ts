@@ -151,6 +151,9 @@ async function generateEmbeddings(
 
 // --- Route Handler ---
 export async function POST(req: NextRequest) {
+  // Tracked so any failure can remove the orphaned Storage blob.
+  let uploadedPath: string | null = null;
+  let supabaseRef: ReturnType<typeof getSupabase> | null = null;
   try {
     const formData = await req.formData();
     const image = formData.get("image") as File | null;
@@ -182,6 +185,8 @@ export async function POST(req: NextRequest) {
       );
 
     const supabase = getSupabase();
+    // supabaseRef lets the outer catch clean up the uploaded blob.
+    supabaseRef = supabase;
 
     // 2. Parallel Execution: Meta Inference + Storage Upload (Low Latency)
     const dataUrlPromise = fileToDataUrl(image);
@@ -194,11 +199,18 @@ export async function POST(req: NextRequest) {
         .upload(fileName, image, { contentType: image.type, upsert: false }),
     ]);
 
-    if (extracted.items.length === 0)
+    if (storageResult.error)
+      throw new Error(`Storage upload failed: ${storageResult.error.message}`);
+    uploadedPath = storageResult.data?.path ?? null;
+
+    if (extracted.items.length === 0) {
+      if (uploadedPath)
+        await supabase.storage.from("menus").remove([uploadedPath]);
       return NextResponse.json(
         { error: "No se detectaron productos en la imagen" },
         { status: 422 },
       );
+    }
 
     const fotoMenuUrl = storageResult.data
       ? supabase.storage.from("menus").getPublicUrl(storageResult.data.path)
@@ -283,6 +295,8 @@ if (tiendaId) {
         categoria: p.category,
         descripcion: p.description,
         embedding: embeddings[i] ? `[${embeddings[i]!.join(",")}]` : null,
+        embedding_status: embeddings[i] ? "ready" : "pending",
+        embedding_attempts: embeddings[i] ? 0 : 1,
         updated_at: new Date().toISOString(),
       }),
     );
@@ -306,6 +320,13 @@ if (tiendaId) {
       { status: 201 },
     );
   } catch (error) {
+    // Best-effort orphan cleanup: never mask the original error.
+    if (uploadedPath && supabaseRef) {
+      await supabaseRef.storage
+        .from("menus")
+        .remove([uploadedPath])
+        .catch(() => undefined);
+    }
     console.error("[BarrioAI Upload Error]", error);
     if (error instanceof z.ZodError || error instanceof SyntaxError)
       return NextResponse.json(
