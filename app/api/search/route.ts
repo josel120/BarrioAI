@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { embedQuery, isEmbeddingAvailable } from "@/lib/ai/embeddings";
+import type { SearchResultRow } from "@/lib/search/types";
 
 export const runtime = "nodejs";
 
@@ -9,27 +11,11 @@ const SearchBodySchema = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
   radius_m: z.number().int().min(100).max(50000).default(5000),
+  threshold: z.number().min(0).max(1).default(0.3),
   limit: z.number().int().min(1).max(50).default(20),
 });
 
 type SearchBody = z.infer<typeof SearchBodySchema>;
-
-interface SearchResultRow {
-  producto_id: string;
-  tienda_id: string;
-  tienda_nombre: string;
-  nombre: string;
-  precio: number | null;
-  moneda: string;
-  categoria: string;
-  descripcion: string | null;
-  distance_m: number;
-  similarity: number;
-}
-
-interface EmbeddingsResponse {
-  data: { index: number; embedding: number[] }[];
-}
 
 // Lazy: module import must stay side-effect free for `next build`.
 function getSupabase() {
@@ -38,31 +24,6 @@ function getSupabase() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false } },
   );
-}
-
-async function embedQuery(q: string): Promise<number[] | null> {
-  try {
-    const res = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      signal: AbortSignal.timeout(15_000),
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-        input: q,
-      }),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as EmbeddingsResponse;
-    const embedding = json.data
-      .slice()
-      .sort((a, b) => a.index - b.index)[0]?.embedding;
-    return embedding ?? null;
-  } catch {
-    return null;
-  }
 }
 
 export async function POST(req: NextRequest) {
@@ -80,15 +41,18 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { q, lat, lng, radius_m, limit }: SearchBody = parsed.data;
+  const { q, lat, lng, radius_m, threshold, limit }: SearchBody = parsed.data;
 
-  if (!process.env.OPENAI_API_KEY) {
+  // No embedding provider configured (neither Meta nor OpenAI).
+  if (!isEmbeddingAvailable()) {
     return NextResponse.json(
       { error: "busqueda semantica no disponible" },
       { status: 503 },
     );
   }
 
+  // Meta Llama embeddings when META_* is configured, else OpenAI — always the
+  // same provider+model the ingestion pipeline used (see lib/ai/embeddings.ts).
   const embedding = await embedQuery(q);
   if (!embedding) {
     return NextResponse.json(
@@ -98,11 +62,12 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabase();
-  const { data, error } = await supabase.rpc("match_productos", {
+  const { data, error } = await supabase.rpc("buscar_productos_y_tiendas", {
     query_embedding: embedding,
-    match_lat: lat,
-    match_lng: lng,
-    radius_m,
+    user_lat: lat,
+    user_lng: lng,
+    similarity_threshold: threshold,
+    max_distance_m: radius_m,
     match_count: limit,
   });
 
@@ -114,18 +79,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // PostgREST may serialize numeric/doble columns loosely; normalize the
+  // unified payload so the client always gets a typed SearchResultRow[].
   const rows = (data ?? []) as SearchResultRow[];
   const results: SearchResultRow[] = rows.map((r) => ({
     producto_id: r.producto_id,
-    tienda_id: r.tienda_id,
-    tienda_nombre: r.tienda_nombre,
     nombre: r.nombre,
-    precio: r.precio,
+    precio: r.precio == null ? null : Number(r.precio),
     moneda: r.moneda,
     categoria: r.categoria,
     descripcion: r.descripcion,
-    distance_m: r.distance_m,
-    similarity: r.similarity,
+    tienda_id: r.tienda_id,
+    tienda_nombre: r.tienda_nombre,
+    tienda_telefono: r.tienda_telefono,
+    tienda_direccion: r.tienda_direccion,
+    tienda_lat: Number(r.tienda_lat),
+    tienda_lng: Number(r.tienda_lng),
+    distance_m: Number(r.distance_m),
+    similarity: Number(r.similarity),
   }));
 
   return NextResponse.json(

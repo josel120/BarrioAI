@@ -53,6 +53,23 @@
   }
 }
 
+/* Custom Leaflet store pin (divIcon): transparent wrapper, the badge inside
+   carries its own Tailwind styling. */
+.barrio-pin {
+  background: transparent;
+  border: none;
+}
+
+/* Popup order button: must out-specify Leaflet's `.leaflet-container a`
+   link color so the label stays white on the green button. */
+.leaflet-container a.barrio-wa {
+  color: #fff;
+}
+
+.leaflet-container a.barrio-wa:hover {
+  color: #fff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,

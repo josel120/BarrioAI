@@ -5,6 +5,7 @@ import {
   META_VISION_SYSTEM_PROMPT,
   META_VISION_USER_PROMPT,
 } from "@/lib/ai/prompts";
+import { embedTexts } from "@/lib/ai/embeddings";
 
 export const runtime = "nodejs"; // Required for Buffer / Service Role
 export const maxDuration = 60;
@@ -119,30 +120,13 @@ async function callMetaVision(
   return MetaOutputSchema.parse(JSON.parse(cleanJson));
 }
 
+// Product embeddings share the provider+model with query search
+// (lib/ai/embeddings.ts): Meta Llama when META_* is set, else OpenAI.
+// Graceful degradation: null entries save the product without a vector.
 async function generateEmbeddings(
   texts: string[],
 ): Promise<(number[] | null)[]> {
-  if (!process.env.OPENAI_API_KEY || texts.length === 0)
-    return texts.map(() => null);
-
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    signal: AbortSignal.timeout(15_000),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-      input: texts,
-    }),
-  });
-
-  if (!res.ok) return texts.map(() => null); // Graceful degradation: save without vector
-  const json = (await res.json()) as { data: { index: number; embedding: number[] }[] };
-  return json.data
-    .sort((a, b) => a.index - b.index)
-    .map((d) => d.embedding);
+  return embedTexts(texts);
 }
 
 // --- Route Handler ---
