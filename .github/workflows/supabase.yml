@@ -1,0 +1,55 @@
+# BarrioAI Supabase migration lint (optional).
+# Triggers only when supabase/** changes. Never fails a PR for missing
+# secrets: without SUPABASE_ACCESS_TOKEN it logs a note and exits 0.
+name: Supabase
+
+on:
+  push:
+    paths:
+      - "supabase/**"
+      - ".github/workflows/supabase.yml"
+  pull_request:
+    paths:
+      - "supabase/**"
+      - ".github/workflows/supabase.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-lint:
+    name: Migration lint / dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+
+      # Always runs when triggered; needs no secrets.
+      - name: List migration files (dry-run, no secrets needed)
+        run: |
+          if [ -d supabase/migrations ]; then
+            echo "Migration files under supabase/migrations:"
+            ls -la supabase/migrations
+          else
+            echo "No supabase/migrations directory yet — nothing to lint."
+          fi
+
+      # Runs only when the optional secret exists. Requires the repo to be
+      # linked to a Supabase project (see docs/CI_CD.md).
+      - name: Lint linked project (requires SUPABASE_ACCESS_TOKEN)
+        if: secrets.SUPABASE_ACCESS_TOKEN != ''
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: npx supabase db lint --linked --fail-on error
+
+      - name: Skip note (no SUPABASE_ACCESS_TOKEN secret)
+        if: secrets.SUPABASE_ACCESS_TOKEN == ''
+        run: |
+          echo "NOTE: SUPABASE_ACCESS_TOKEN secret is not set — skipping linked-project lint."
+          echo "The migration file listing above is the full dry-run. See docs/CI_CD.md to enable."

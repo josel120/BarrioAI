@@ -8,6 +8,7 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
+import { formatPrecio } from "@/lib/formatPrecio";
 
 type GeoStatus = "listo" | "localizando" | "denegado" | "no-disponible";
 
@@ -35,6 +36,10 @@ interface Coords {
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+// Vercel rejects request bodies > 4.5MB at the platform layer
+// (FUNCTION_PAYLOAD_TOO_LARGE), below the API's own 8MB limit.
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const COMPRESS_MAX_DIM = 1024;
 
 const GEO_MESSAGES: Record<GeoStatus, string> = {
   listo: "Ubicación lista.",
@@ -71,6 +76,26 @@ function messageForStatus(status: number): string {
     default:
       return `Error inesperado (${status}). Intenta de nuevo.`;
   }
+}
+
+async function compressImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(
+    1,
+    COMPRESS_MAX_DIM / Math.max(bitmap.width, bitmap.height),
+  );
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.floor(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.floor(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D no disponible");
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((res) =>
+    canvas.toBlob((b) => res(b), "image/jpeg", 0.82),
+  );
+  if (!blob) throw new Error("No se pudo comprimir la imagen");
+  return blob;
 }
 
 export default function MenuUploadForm() {
@@ -178,8 +203,22 @@ export default function MenuUploadForm() {
     setSubmitError(null);
     setResult(null);
     try {
+      // Client-side compression: never send the raw file, the hosting
+      // platform caps request bodies below the API's own 8MB limit.
+      let payload: Blob = image;
+      try {
+        payload = await compressImage(image);
+      } catch {
+        payload = image;
+      }
+      if (payload.size > MAX_UPLOAD_BYTES) {
+        setSubmitError(
+          "La foto sigue siendo muy grande después de optimizarla. Elige una más pequeña.",
+        );
+        return;
+      }
       const formData = new FormData();
-      formData.append("image", image);
+      formData.append("image", payload, "menu.jpg");
       if (tiendaId.trim() !== "") formData.append("tiendaId", tiendaId.trim());
       if (nombre.trim() !== "") formData.append("nombre", nombre.trim());
       formData.append("lat", String(coords.lat));
@@ -216,18 +255,23 @@ export default function MenuUploadForm() {
   const showManual = geoStatus === "denegado" || geoStatus === "no-disponible";
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex w-full max-w-md flex-col gap-5"
-    >
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-6">
       {/* 1. Foto del menú */}
       <div className="flex flex-col gap-2">
-        <label
-          htmlFor="menu-photo"
-          className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
-        >
-          Foto del menú o pizarrón
-        </label>
+        <div className="flex items-baseline gap-2">
+          <span
+            aria-hidden="true"
+            className="text-base font-extrabold tabular-nums text-mercado-700 dark:text-mercado-500"
+          >
+            1
+          </span>
+          <label
+            htmlFor="menu-photo"
+            className="text-base font-semibold text-zinc-900 dark:text-zinc-50"
+          >
+            Foto del menú o pizarrón
+          </label>
+        </div>
         <input
           id="menu-photo"
           name="menu-photo"
@@ -235,9 +279,11 @@ export default function MenuUploadForm() {
           accept="image/*"
           capture="environment"
           onChange={handleImageChange}
-          className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-3 text-base text-zinc-900 file:mr-3 file:rounded-full file:border-0 file:bg-green-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-3 text-base text-zinc-900 file:mr-3 file:rounded-full file:border-0 file:bg-mercado-700 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
-        <p className="text-sm text-zinc-500">Toma una foto (máx. 8 MB).</p>
+        <p className="text-sm text-zinc-500">
+          Toma una foto (máx. 8 MB, se optimiza al subir).
+        </p>
         {imageError !== null && (
           <p role="alert" className="text-sm font-medium text-red-600">
             {imageError}
@@ -255,14 +301,22 @@ export default function MenuUploadForm() {
 
       {/* 2. Ubicación */}
       <div className="flex flex-col gap-2">
-        <p className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
-          Ubicación de tu negocio
-        </p>
+        <div className="flex items-baseline gap-2">
+          <span
+            aria-hidden="true"
+            className="text-base font-extrabold tabular-nums text-mercado-700 dark:text-mercado-500"
+          >
+            2
+          </span>
+          <p className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            Ubicación de tu negocio
+          </p>
+        </div>
         <p
           role="status"
           className={
             geoStatus === "listo"
-              ? "text-sm font-medium text-green-700"
+              ? "text-sm font-medium text-mercado-700 dark:text-mercado-500"
               : geoStatus === "localizando"
                 ? "text-sm text-zinc-500"
                 : "text-sm font-medium text-amber-600"
@@ -294,8 +348,8 @@ export default function MenuUploadForm() {
                 max={90}
                 value={manualLat}
                 onChange={(e) => handleManualLat(e.target.value)}
-                placeholder="19.4326"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                placeholder="-12.0464"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -315,8 +369,8 @@ export default function MenuUploadForm() {
                 max={180}
                 value={manualLng}
                 onChange={(e) => handleManualLng(e.target.value)}
-                placeholder="-99.1332"
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                placeholder="-77.0428"
+                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
               />
             </div>
           </div>
@@ -334,12 +388,24 @@ export default function MenuUploadForm() {
 
       {/* 3. Datos opcionales */}
       <div className="flex flex-col gap-3">
+        <div className="flex items-baseline gap-2">
+          <span
+            aria-hidden="true"
+            className="text-base font-extrabold tabular-nums text-mercado-700 dark:text-mercado-500"
+          >
+            3
+          </span>
+          <p className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+            Datos de tu negocio{" "}
+            <span className="font-normal text-zinc-500">(opcional)</span>
+          </p>
+        </div>
         <div className="flex flex-col gap-1">
           <label
             htmlFor="nombre"
             className="text-sm font-medium text-zinc-700 dark:text-zinc-200"
           >
-            Nombre del negocio (opcional)
+            Nombre del negocio
           </label>
           <input
             id="nombre"
@@ -349,7 +415,7 @@ export default function MenuUploadForm() {
             onChange={(e) => setNombre(e.target.value)}
             placeholder="Taquería El Barrio"
             autoComplete="organization"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -357,7 +423,7 @@ export default function MenuUploadForm() {
             htmlFor="tiendaId"
             className="text-sm font-medium text-zinc-700 dark:text-zinc-200"
           >
-            ID de tienda (opcional, para actualizar)
+            ID de tienda
           </label>
           <input
             id="tiendaId"
@@ -367,7 +433,7 @@ export default function MenuUploadForm() {
             onChange={(e) => setTiendaId(e.target.value)}
             placeholder="Pégalo aquí si ya tienes una tienda"
             autoComplete="off"
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
           />
         </div>
       </div>
@@ -376,7 +442,7 @@ export default function MenuUploadForm() {
       <button
         type="submit"
         disabled={!canSubmit}
-        className="w-full rounded-full bg-green-700 px-5 py-3.5 text-base font-semibold text-white transition-colors hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
+        className="w-full rounded-full bg-mercado-700 px-5 py-3.5 text-base font-semibold text-white transition-colors hover:bg-mercado-800 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
       >
         {submitting ? "Subiendo…" : "Subir menú"}
       </button>
@@ -390,12 +456,12 @@ export default function MenuUploadForm() {
       {result !== null && (
         <section
           aria-live="polite"
-          className="flex flex-col gap-2 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-900 dark:bg-green-950"
+          className="flex flex-col gap-2 rounded-2xl bg-mercado-50 p-4 dark:bg-mercado-950"
         >
-          <p className="text-base font-semibold text-green-800 dark:text-green-200">
+          <p className="text-base font-semibold text-mercado-900 dark:text-mercado-100">
             ¡Menú publicado!
           </p>
-          <p className="text-sm text-zinc-700 dark:text-zinc-200">
+          <p className="truncate text-sm text-zinc-700 dark:text-zinc-200">
             Tienda: <span className="font-mono">{result.tienda_id}</span>
           </p>
           <p className="text-sm text-zinc-700 dark:text-zinc-200">
@@ -405,16 +471,22 @@ export default function MenuUploadForm() {
             {` · ${result.data.currency}`}
           </p>
           {result.data.items.length > 0 && (
-            <ul className="mt-1 flex flex-col gap-1.5">
+            <ul className="mt-1 flex flex-col divide-y divide-mercado-100 dark:divide-mercado-900">
               {result.data.items.map((item) => (
                 <li
                   key={`${item.name}-${item.price ?? "sin-precio"}`}
-                  className="flex items-baseline justify-between gap-3 text-sm text-zinc-800 dark:text-zinc-100"
+                  className="flex items-baseline gap-2 py-1.5 text-sm text-zinc-800 dark:text-zinc-100"
                 >
-                  <span className="font-medium">{item.name}</span>
-                  <span className="shrink-0 text-zinc-600 dark:text-zinc-300">
+                  <span className="min-w-0 flex-initial truncate font-medium">
+                    {item.name}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="min-w-4 flex-1 border-b-2 border-dotted border-mercado-200 dark:border-mercado-800"
+                  />
+                  <span className="shrink-0 tabular-nums text-zinc-600 dark:text-zinc-300">
                     {item.price !== null
-                      ? `$${item.price} ${result.data.currency}`
+                      ? formatPrecio(item.price, result.data.currency)
                       : "Sin precio"}
                   </span>
                 </li>

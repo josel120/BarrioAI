@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import {
-  LLAMA_VISION_SYSTEM_PROMPT,
-  LLAMA_VISION_USER_PROMPT,
+  META_VISION_SYSTEM_PROMPT,
+  META_VISION_USER_PROMPT,
 } from "@/lib/ai/prompts";
 
 export const runtime = "nodejs"; // Required for Buffer / Service Role
@@ -17,9 +17,9 @@ const ExtractedProductSchema = z.object({
   description: z.string().max(300).nullable().catch(null),
 });
 
-const LlamaOutputSchema = z.object({
+const MetaOutputSchema = z.object({
   store_name: z.string().nullable().catch(null),
-  currency: z.string().length(3).default("MXN").catch("MXN"),
+  currency: z.string().length(3).default("PEN").catch("PEN"),
   items: z.array(ExtractedProductSchema).max(200),
 });
 
@@ -44,29 +44,59 @@ async function fileToDataUrl(file: File): Promise<string> {
   return `data:${file.type};base64,${buffer.toString("base64")}`;
 }
 
-async function callLlamaVision(
+async function callMetaVision(
   dataUrl: string,
-): Promise<z.infer<typeof LlamaOutputSchema>> {
+): Promise<z.infer<typeof MetaOutputSchema>> {
   const res = await fetch(
-    `${process.env.LLAMA_API_BASE_URL}/chat/completions`,
+    `${process.env.META_API_BASE_URL}/chat/completions`,
     {
       method: "POST",
       signal: AbortSignal.timeout(30_000),
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.LLAMA_API_KEY}`,
+        Authorization: `Bearer ${process.env.META_API_KEY}`,
       },
       body: JSON.stringify({
-        model: process.env.LLAMA_VISION_MODEL,
+        model: process.env.META_VISION_MODEL,
         temperature: 0.0, // Deterministic extraction
         max_tokens: 4096,
-        response_format: { type: "json_object" },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "menu_extraction",
+            schema: {
+              type: "object",
+              properties: {
+                store_name: { type: ["string", "null"] },
+                currency: { type: "string" },
+                items: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      price: { type: ["number", "null"] },
+                      category: { type: "string" },
+                      description: { type: ["string", "null"] },
+                    },
+                    required: ["name", "price", "category", "description"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["store_name", "currency", "items"],
+              additionalProperties: false,
+            },
+          },
+        },
         messages: [
-          { role: "system", content: LLAMA_VISION_SYSTEM_PROMPT },
+          { role: "system", content: META_VISION_SYSTEM_PROMPT },
           {
             role: "user",
             content: [
-              { type: "text", text: LLAMA_VISION_USER_PROMPT },
+              { type: "text", text: META_VISION_USER_PROMPT },
+              // Meta Chat Completions uses the OpenAI image-part shape
+              // (input_image belongs to the Responses API and 400s here)
               { type: "image_url", image_url: { url: dataUrl } },
             ],
           },
@@ -75,7 +105,7 @@ async function callLlamaVision(
     },
   );
 
-  if (!res.ok) throw new Error(`Llama API ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Meta API ${res.status}: ${await res.text()}`);
 
   const data = (await res.json()) as ChatCompletionResponse;
   const rawContent = data.choices[0]?.message?.content ?? "{}";
@@ -86,7 +116,7 @@ async function callLlamaVision(
     .replace(/\s*```$/, "")
     .trim();
 
-  return LlamaOutputSchema.parse(JSON.parse(cleanJson));
+  return MetaOutputSchema.parse(JSON.parse(cleanJson));
 }
 
 async function generateEmbeddings(
@@ -148,12 +178,12 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabase();
 
-    // 2. Parallel Execution: Llama Inference + Storage Upload (Low Latency)
+    // 2. Parallel Execution: Meta Inference + Storage Upload (Low Latency)
     const dataUrlPromise = fileToDataUrl(image);
     const fileName = `${crypto.randomUUID()}.${image.type.split("/")[1] ?? "jpg"}`;
 
     const [extracted, storageResult] = await Promise.all([
-      dataUrlPromise.then(callLlamaVision),
+      dataUrlPromise.then(callMetaVision),
       supabase.storage
         .from("menus")
         .upload(fileName, image, { contentType: image.type, upsert: false }),

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
+import { formatPrecio } from "@/lib/formatPrecio";
 
 interface SearchResult {
   id: string;
@@ -38,28 +40,25 @@ function formatDistance(m?: number): string {
   return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
 }
 
-export default function BuscarPage() {
+function BuscarContenido() {
   const { coords, error: geoError } = useGeolocation();
-  const [q, setQ] = useState("");
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
+  const [q, setQ] = useState(initialQ);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [searched, setSearched] = useState(false);
+  const autoRan = useRef(false);
 
-  async function onSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!coords || q.trim().length < 2) return;
+  const doSearch = useCallback(async (query: string, lat: number, lng: number) => {
     setStatus("loading");
     setSearched(true);
     try {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          q: q.trim(),
-          lat: coords.lat,
-          lng: coords.lng,
-        }),
+        body: JSON.stringify({ q: query, lat, lng }),
       });
       const data = (await res.json()) as {
         results?: ApiSearchRow[];
@@ -84,77 +83,113 @@ export default function BuscarPage() {
     } catch {
       setStatus("error");
     }
+  }, []);
+
+  function onSearch(e: React.FormEvent) {
+    e.preventDefault();
+    if (!coords || q.trim().length < 2) return;
+    void doSearch(q.trim(), coords.lat, coords.lng);
   }
 
+  // Deep link from home (?q=…): run once coordinates are ready.
+  useEffect(() => {
+    if (!autoRan.current && coords && initialQ.trim().length >= 2) {
+      autoRan.current = true;
+      void doSearch(initialQ.trim(), coords.lat, coords.lng);
+    }
+  }, [coords, initialQ, doSearch]);
+
   return (
-    <main className="flex-1 w-full max-w-2xl mx-auto p-4 pb-24 flex flex-col gap-4">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+    <main className="flex flex-col gap-4">
+      <h1 className="text-2xl font-extrabold tracking-tight">
         Buscar en tu barrio
       </h1>
 
-      <form onSubmit={onSearch} className="flex gap-2">
+      <form onSubmit={onSearch} role="search" className="flex gap-2">
+        <label htmlFor="q" className="sr-only">
+          ¿Qué buscas?
+        </label>
         <input
+          id="q"
+          name="q"
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Tacos, pan, corte de pelo…"
+          placeholder="Pollo a la brasa, ceviche, bodega…"
           minLength={2}
           maxLength={100}
-          className="flex-1 border border-zinc-300 dark:border-zinc-700 rounded-lg px-4 py-3 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-50"
+          autoComplete="off"
+          inputMode="search"
+          className="min-w-0 flex-1 rounded-xl border border-zinc-300 bg-white px-4 py-3 text-base text-zinc-900 placeholder:text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         />
         <button
           type="submit"
           disabled={status === "loading" || !coords}
-          className="bg-green-600 active:bg-green-700 text-white font-semibold px-5 rounded-lg disabled:opacity-60"
+          className="shrink-0 rounded-xl bg-mercado-700 px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-mercado-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {status === "loading" ? "…" : "Buscar"}
         </button>
       </form>
 
       {geoError && (
-        <p className="text-amber-700 bg-amber-50 p-3 rounded-lg text-sm">
+        <p className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
           {geoError}
         </p>
       )}
 
+      <p aria-live="polite" className="min-h-5 text-sm text-zinc-500">
+        {status === "loading"
+          ? "Buscando…"
+          : searched && status === "idle" && results.length > 0
+            ? `${results.length} ${results.length === 1 ? "resultado" : "resultados"} cerca de ti`
+            : ""}
+      </p>
+
       {status === "error" && (
-        <p className="text-red-600 bg-red-50 p-3 rounded-lg text-sm">
-          No pudimos buscar. Intenta de nuevo.
+        <p className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-950 dark:text-red-200">
+          No pudimos buscar. Revisa tu conexión e intenta de nuevo.
         </p>
       )}
 
       {searched && status === "idle" && results.length === 0 && (
-        <p className="text-zinc-600 dark:text-zinc-400 text-center py-8">
-          Sin resultados cerca de ti. Prueba con otra palabra.
-        </p>
+        <div className="flex flex-col items-center gap-2 py-10 text-center">
+          <p className="text-base font-semibold">Sin resultados cerca de ti</p>
+          <p className="max-w-60 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+            Prueba con otra palabra, como “ceviche”, “anticuchos” o “bodega”.
+          </p>
+        </div>
       )}
 
       {results.length > 0 && (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {results.map((r) => (
-            <li
-              key={r.id}
-              className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-white dark:bg-zinc-900"
-            >
-              <div className="flex justify-between items-baseline gap-2">
-                <p className="font-semibold text-zinc-900 dark:text-zinc-50">
+            <li key={r.id} className="flex flex-col gap-1 py-3.5">
+              <div className="flex items-baseline gap-2">
+                <p className="min-w-0 flex-initial truncate font-semibold">
                   {r.nombre}
                 </p>
+                <span
+                  aria-hidden="true"
+                  className="mx-1 min-w-6 flex-1 border-b-2 border-dotted border-zinc-300 dark:border-zinc-700"
+                />
                 {r.precio != null && (
-                  <p className="font-bold text-green-700 whitespace-nowrap">
-                    ${r.precio}
-                    {r.moneda ? ` ${r.moneda}` : ""}
+                  <p className="shrink-0 font-bold tabular-nums text-mercado-700 dark:text-mercado-500">
+                    {formatPrecio(r.precio, r.moneda)}
                   </p>
                 )}
               </div>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              <p className="truncate text-sm text-zinc-600 dark:text-zinc-300">
                 {r.tienda_nombre ?? r.tiendas?.nombre ?? "Tienda"}
-                {r.distancia_metros != null &&
-                  ` · ${formatDistance(r.distancia_metros)}`}
+                {r.distancia_metros != null && (
+                  <span className="tabular-nums">
+                    {" "}
+                    · {formatDistance(r.distancia_metros)}
+                  </span>
+                )}
                 {r.categoria ? ` · ${r.categoria}` : ""}
               </p>
               {r.descripcion && (
-                <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                <p className="line-clamp-2 text-sm leading-6 break-words text-zinc-500 dark:text-zinc-400">
                   {r.descripcion}
                 </p>
               )}
@@ -164,10 +199,27 @@ export default function BuscarPage() {
       )}
 
       {source && results.length > 0 && (
-        <p className="text-xs text-zinc-400 text-center">
+        <p className="text-center text-xs text-zinc-400">
           {source === "semantic" ? "Búsqueda semántica" : "Búsqueda por texto"}
         </p>
       )}
     </main>
+  );
+}
+
+export default function BuscarPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex flex-col gap-4">
+          <h1 className="text-2xl font-extrabold tracking-tight">
+            Buscar en tu barrio
+          </h1>
+          <p className="text-sm text-zinc-500">Cargando…</p>
+        </main>
+      }
+    >
+      <BuscarContenido />
+    </Suspense>
   );
 }

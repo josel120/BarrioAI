@@ -1,26 +1,63 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Colors live in plain @theme (not inline) so utilities reference
+   var(--color-*) and the [data-theme="meta"] override below can flip
+   every mercado-* utility to the Meta palette at runtime. */
+@theme {
+  --color-mercado-50: #f0fdf4;
+  --color-mercado-100: #dcfce7;
+  --color-mercado-200: #bbf7d0;
+  --color-mercado-500: #22c55e;
+  --color-mercado-600: #16a34a;
+  --color-mercado-700: #15803d;
+  --color-mercado-800: #166534;
+  --color-mercado-900: #14532d;
+  --color-mercado-950: #052e16;
+
+  --color-meta-50: #eef6ff;
+  --color-meta-100: #d9eaff;
+  --color-meta-200: #b9d7ff;
+  --color-meta-500: #0082fb;
+  --color-meta-600: #0064e0;
+  --color-meta-700: #0053bb;
+  --color-meta-800: #004b93;
+  --color-meta-900: #0a3a6b;
+  --color-meta-950: #0a2247;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* Meta theme: same mercado-* utilities, Meta blue palette. */
+[data-theme="meta"] {
+  --color-mercado-50: #eef6ff;
+  --color-mercado-100: #d9eaff;
+  --color-mercado-200: #b9d7ff;
+  --color-mercado-500: #0082fb;
+  --color-mercado-600: #0064e0;
+  --color-mercado-700: #0053bb;
+  --color-mercado-800: #004b93;
+  --color-mercado-900: #0a3a6b;
+  --color-mercado-950: #0a2247;
+}
+
+@layer base {
+  body {
+    @apply bg-white font-sans text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-50;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-mercado-600);
+    outline-offset: 2px;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

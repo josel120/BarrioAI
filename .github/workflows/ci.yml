@@ -1,0 +1,74 @@
+# BarrioAI CI: typecheck + lint + build. No secrets required.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Cancel stale runs on the same branch so PRs get fast, current signals.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the local toolchain (Node 24). See docs/CI_CD.md.
+          node-version: "24"
+          cache: npm
+      # Validates that package-lock.json is in sync with package.json.
+      - run: npm ci
+
+  typecheck:
+    name: Typecheck
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  lint:
+    name: Lint
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  build:
+    name: Build
+    needs: install
+    runs-on: ubuntu-latest
+    # Empty-but-present env: exercises the app's lazy-client behavior
+    # (build must succeed without real credentials).
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      META_API_BASE_URL: ""
+      META_API_KEY: ""
+      META_VISION_MODEL: ""
+      OPENAI_API_KEY: ""
+      EMBEDDING_MODEL: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
