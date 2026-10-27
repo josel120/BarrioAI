@@ -62,7 +62,7 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
   await assertMapResults(page, {
     storeName: "Taquería La Esquina",
     productName: "Tacos al pastor",
-    priceText: "S/ 12.5",
+    priceText: "S/ 12.50",
     distanceText: "148 m",
     extrasText: "+1 producto",
     waHrefPrefix: "https://wa.me/51999888777?text=",

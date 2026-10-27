@@ -190,9 +190,9 @@ export function MapSearch({ user, results }: MapSearchProps) {
           center={[user.lat, user.lng]}
           radius={22}
           pathOptions={{
-            color: "#2563eb",
+            color: "var(--color-mercado-700)",
             weight: 0,
-            fillColor: "#2563eb",
+            fillColor: "var(--color-mercado-700)",
             fillOpacity: 0.15,
           }}
           interactive={false}
@@ -203,7 +203,7 @@ export function MapSearch({ user, results }: MapSearchProps) {
           pathOptions={{
             color: "#ffffff",
             weight: 3,
-            fillColor: "#2563eb",
+            fillColor: "var(--color-mercado-700)",
             fillOpacity: 1,
           }}
         />
