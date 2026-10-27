@@ -7,6 +7,7 @@ import { useGeolocation } from "@/lib/hooks/useGeolocation";
 import { formatPrecio } from "@/lib/formatPrecio";
 import { formatDistance } from "@/lib/formatDistance";
 import type { SearchResultRow } from "@/lib/search/types";
+import { buildPedidoMessage, buildWhatsAppUrl } from "@/lib/formatWhatsApp";
 import { MapSkeleton, ResultsSkeleton } from "@/components/SearchSkeletons";
 
 // Leaflet requires `window`: load the map only on the client.
@@ -15,20 +16,6 @@ const MapSearch = dynamic(
   { ssr: false, loading: () => <MapSkeleton /> },
 );
 
-interface SearchResult {
-  id: string;
-  nombre: string;
-  precio: number | null;
-  moneda?: string;
-  categoria?: string;
-  descripcion?: string | null;
-  tienda_nombre?: string;
-  tienda_telefono?: string | null;
-  distancia_metros?: number;
-  similitud?: number;
-  tiendas?: { nombre: string };
-}
-
 type Status = "idle" | "loading" | "error";
 
 function BuscarContenido() {
@@ -36,15 +23,16 @@ function BuscarContenido() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [q, setQ] = useState(initialQ);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [mapRows, setMapRows] = useState<SearchResultRow[]>([]);
+  const [results, setResults] = useState<SearchResultRow[]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
+  const [unavailable, setUnavailable] = useState(false);
   const [searched, setSearched] = useState(false);
   const autoRan = useRef(false);
 
   const doSearch = useCallback(async (query: string, lat: number, lng: number) => {
     setStatus("loading");
+    setUnavailable(false);
     setSearched(true);
     try {
       const res = await fetch("/api/search", {
@@ -56,23 +44,11 @@ function BuscarContenido() {
         results?: SearchResultRow[];
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error ?? "Error en búsqueda");
-      const rows = data.results ?? [];
-      setMapRows(rows);
-      setResults(
-        rows.map((r) => ({
-          id: r.producto_id,
-          nombre: r.nombre,
-          precio: r.precio,
-          moneda: r.moneda,
-          categoria: r.categoria,
-          descripcion: r.descripcion,
-          tienda_nombre: r.tienda_nombre,
-          tienda_telefono: r.tienda_telefono,
-          distancia_metros: r.distance_m,
-          similitud: r.similarity,
-        })),
-      );
+      if (!res.ok) {
+        if (res.status === 503) setUnavailable(true);
+        throw new Error(data.error ?? "Error en búsqueda");
+      }
+      setResults(data.results ?? []);
       setSource("semantic");
       setStatus("idle");
     } catch {
@@ -132,7 +108,7 @@ function BuscarContenido() {
         </p>
       )}
 
-      {coords && <MapSearch user={coords} results={mapRows} />}
+      {coords && <MapSearch user={coords} results={results} />}
 
       <p aria-live="polite" className="min-h-5 text-sm text-zinc-500">
         {status === "loading"
@@ -146,7 +122,9 @@ function BuscarContenido() {
 
       {status === "error" && (
         <p className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-950 dark:text-red-200">
-          No pudimos buscar. Revisa tu conexión e intenta de nuevo.
+          {unavailable
+            ? "La búsqueda no está disponible por ahora. Intenta más tarde."
+            : "No pudimos buscar. Revisa tu conexión e intenta de nuevo."}
         </p>
       )}
 
@@ -162,7 +140,7 @@ function BuscarContenido() {
       {results.length > 0 && (
         <ul className="flex flex-col divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {results.map((r) => (
-            <li key={r.id} className="flex flex-col gap-1 py-3.5">
+            <li key={r.producto_id} className="flex flex-col gap-1 py-3.5">
               <div className="flex items-baseline gap-2">
                 <p className="min-w-0 flex-initial truncate font-semibold">
                   {r.nombre}
@@ -178,13 +156,11 @@ function BuscarContenido() {
                 )}
               </div>
               <p className="truncate text-sm text-zinc-600 dark:text-zinc-300">
-                {r.tienda_nombre ?? r.tiendas?.nombre ?? "Tienda"}
-                {r.distancia_metros != null && (
-                  <span className="tabular-nums">
-                    {" "}
-                    · {formatDistance(r.distancia_metros)}
-                  </span>
-                )}
+                {r.tienda_nombre ?? "Tienda"}
+                <span className="tabular-nums">
+                  {" "}
+                  · {formatDistance(r.distance_m)}
+                </span>
                 {r.categoria ? ` · ${r.categoria}` : ""}
               </p>
               {r.descripcion && (
@@ -192,6 +168,22 @@ function BuscarContenido() {
                   {r.descripcion}
                 </p>
               )}
+              {(() => {
+                const wa = buildWhatsAppUrl(
+                  r.tienda_telefono,
+                  buildPedidoMessage(r.nombre, r.tienda_nombre),
+                );
+                return wa ? (
+                  <a
+                    href={wa}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 self-start rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-mercado-800"
+                  >
+                    Pedir por WhatsApp
+                  </a>
+                ) : null;
+              })()}
             </li>
           ))}
         </ul>

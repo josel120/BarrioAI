@@ -7,8 +7,10 @@ export function buildWhatsAppUrl(
   mensaje: string,
 ): string | null {
   if (!telefono) return null;
-  const digitos = telefono.replace(/\D/g, "");
-  if (!digitos) return null;
+  let digitos = telefono.replace(/\D/g, "");
+  // Peruvian mobile (9 digits, starts with 9) needs the country code for wa.me.
+  if (digitos.length === 9 && digitos.startsWith("9")) digitos = `51${digitos}`;
+  if (digitos.length < 10 || digitos.length > 15) return null;
   return `https://wa.me/${digitos}?text=${encodeURIComponent(mensaje)}`;
 }
 
