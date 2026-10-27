@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { embedQuery, isEmbeddingAvailable } from "@/lib/ai/embeddings";
+import { checkRateLimit, clientIp } from "@/lib/rateLimit";
+import { logError, logInfo } from "@/lib/log";
 import type { SearchResultRow } from "@/lib/search/types";
 
 export const runtime = "nodejs";
@@ -27,17 +29,33 @@ function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID();
+  const startedAt = performance.now();
+
+  const rate = checkRateLimit(`search:${clientIp(req)}`, 60, 60_000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Demasiadas búsquedas. Espera un momento e intenta de nuevo." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rate.retryAfterSeconds) },
+      },
+    );
+  }
+
   let body: unknown;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ error: "Cuerpo de solicitud inválido" }, { status: 400 });
   }
 
   const parsed = SearchBodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Invalid request body", details: parsed.error.flatten() },
+      {
+        error: "Datos de búsqueda inválidos. Revisa el texto y tu ubicación.",
+      },
       { status: 400 },
     );
   }
@@ -46,7 +64,7 @@ export async function POST(req: NextRequest) {
   // No embedding provider configured (neither Meta nor OpenAI).
   if (!isEmbeddingAvailable()) {
     return NextResponse.json(
-      { error: "busqueda semantica no disponible" },
+      { error: "La búsqueda semántica no está disponible por ahora" },
       { status: 503 },
     );
   }
@@ -56,7 +74,7 @@ export async function POST(req: NextRequest) {
   const embedding = await embedQuery(q);
   if (!embedding) {
     return NextResponse.json(
-      { error: "busqueda semantica no disponible" },
+      { error: "La búsqueda semántica no está disponible por ahora" },
       { status: 503 },
     );
   }
@@ -72,9 +90,15 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    console.error("[BarrioAI Search Error]", error);
+    logError("search.rpc_failed", {
+      request_id: requestId,
+      route: "/api/search",
+      stage: "rpc",
+      ms: Math.round(performance.now() - startedAt),
+      error,
+    });
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Error interno del servidor. Intenta más tarde." },
       { status: 500 },
     );
   }
@@ -98,6 +122,13 @@ export async function POST(req: NextRequest) {
     distance_m: Number(r.distance_m),
     similarity: Number(r.similarity),
   }));
+
+  logInfo("search.ok", {
+    request_id: requestId,
+    route: "/api/search",
+    ms: Math.round(performance.now() - startedAt),
+    count: results.length,
+  });
 
   return NextResponse.json(
     { results, count: results.length },
