@@ -103,6 +103,16 @@ before the deadline. The Official Rules take priority over these notes.
   (pitches, code, demos) carries a perpetual royalty-free license and
   may be recorded and reused. Demo with sample/made-up data only.
 
+## Task Isolation (worktrees)
+
+- One task, one worktree: every task gets its own git worktree so
+  parallel tasks never touch each other's files.
+- Location `.worktrees/<task-slug>/` (gitignored); branch
+  `task/<task-slug>` off `main`.
+- Never commit task work directly on `main` in the primary checkout;
+  merge or PR the task branch when done, then remove the worktree.
+- Verify inside the worktree (typecheck, lint, build) before merging.
+
 ## Skills & Conventions
 
 - UI work: read `.agents/skills/barrio-ui/SKILL.md` first (tokens, app
