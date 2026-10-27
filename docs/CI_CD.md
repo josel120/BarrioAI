@@ -22,7 +22,7 @@
 | `.github/workflows/ci.yml` | `push` + `pull_request` | Install, Typecheck, Lint, Build | none |
 | `.github/workflows/supabase.yml` | `push`/`pull_request` touching `supabase/**`, or manual dispatch | Migration lint / dry-run | `SUPABASE_ACCESS_TOKEN` (optional) |
 
-- `ci.yml` pins Node `24` in `actions/setup-node@v4` (local toolchain at
+- `ci.yml` pins Node `24` in `actions/setup-node@v7` (local toolchain at
   time of writing: Node v24.19.0) with the npm cache enabled, then `npm ci`
   (deterministic install from `package-lock.json`). The `install` job fails
   fast if the lockfile drifts out of sync with `package.json`.
