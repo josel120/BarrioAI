@@ -9,6 +9,8 @@ import { formatDistance } from "@/lib/formatDistance";
 import type { SearchResultRow } from "@/lib/search/types";
 import { buildPedidoMessage, buildWhatsAppUrl } from "@/lib/formatWhatsApp";
 import { MapSkeleton, ResultsSkeleton } from "@/components/SearchSkeletons";
+import { TimedLoading } from "@/components/Loading";
+import { ChevronDownIcon, PinIcon } from "@/components/icons";
 
 // Leaflet requires `window`: load the map only on the client.
 const MapSearch = dynamic(
@@ -28,9 +30,11 @@ function BuscarContenido() {
   const [status, setStatus] = useState<Status>("idle");
   const [unavailable, setUnavailable] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const autoRan = useRef(false);
 
   const doSearch = useCallback(async (query: string, lat: number, lng: number) => {
+    setExpandedId(null);
     setStatus("loading");
     setUnavailable(false);
     setSearched(true);
@@ -61,6 +65,13 @@ function BuscarContenido() {
     if (!coords || q.trim().length < 2) return;
     void doSearch(q.trim(), coords.lat, coords.lng);
   }
+
+  const statusText =
+    status === "loading"
+      ? ""
+      : searched && status === "idle" && results.length > 0
+        ? `${results.length} ${results.length === 1 ? "resultado" : "resultados"} cerca de ti`
+        : "";
 
   // Deep link from home (?q=…): run once coordinates are ready.
   useEffect(() => {
@@ -96,9 +107,9 @@ function BuscarContenido() {
         <button
           type="submit"
           disabled={status === "loading" || !coords}
-          className="shrink-0 rounded-xl bg-mercado-700 px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-mercado-800 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-11 shrink-0 rounded-xl bg-mercado-700 px-5 py-3 text-base font-semibold text-white transition-[background-color,transform] duration-[var(--duration-quick)] hover:bg-mercado-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {status === "loading" ? "…" : "Buscar"}
+          Buscar
         </button>
       </form>
 
@@ -111,14 +122,12 @@ function BuscarContenido() {
       {coords && <MapSearch user={coords} results={results} />}
 
       <p aria-live="polite" className="min-h-5 text-sm text-zinc-500">
-        {status === "loading"
-          ? "Buscando…"
-          : searched && status === "idle" && results.length > 0
-            ? `${results.length} ${results.length === 1 ? "resultado" : "resultados"} cerca de ti`
-            : ""}
+        <span key={statusText} className="t-text-swap inline-block">
+          {statusText}
+        </span>
       </p>
 
-      {status === "loading" && <ResultsSkeleton />}
+      <TimedLoading active={status === "loading"} label="Buscando" expectedMs={8000}><ResultsSkeleton /></TimedLoading>
 
       {status === "error" && (
         <p className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-950 dark:text-red-200">
@@ -138,54 +147,103 @@ function BuscarContenido() {
       )}
 
       {results.length > 0 && (
-        <ul className="flex flex-col divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {results.map((r) => (
-            <li key={r.producto_id} className="flex flex-col gap-1 py-3.5">
-              <div className="flex items-baseline gap-2">
-                <p className="min-w-0 flex-initial truncate font-semibold">
-                  {r.nombre}
-                </p>
-                <span
-                  aria-hidden="true"
-                  className="mx-1 min-w-6 flex-1 border-b-2 border-dotted border-zinc-300 dark:border-zinc-700"
-                />
-                {r.precio != null && (
-                  <p className="shrink-0 font-bold tabular-nums text-mercado-700 dark:text-mercado-500">
-                    {formatPrecio(r.precio, r.moneda)}
-                  </p>
-                )}
-              </div>
-              <p className="truncate text-sm text-zinc-600 dark:text-zinc-300">
-                {r.tienda_nombre ?? "Tienda"}
-                <span className="tabular-nums">
-                  {" "}
-                  · {formatDistance(r.distance_m)}
-                </span>
-                {r.categoria ? ` · ${r.categoria}` : ""}
-              </p>
-              {r.descripcion && (
-                <p className="line-clamp-2 text-sm leading-6 break-words text-zinc-500 dark:text-zinc-400">
-                  {r.descripcion}
-                </p>
-              )}
-              {(() => {
-                const wa = buildWhatsAppUrl(
-                  r.tienda_telefono,
-                  buildPedidoMessage(r.nombre, r.tienda_nombre),
-                );
-                return wa ? (
-                  <a
-                    href={wa}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 self-start rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-mercado-800"
-                  >
-                    Pedir por WhatsApp
-                  </a>
-                ) : null;
-              })()}
-            </li>
-          ))}
+        <ul
+          key={`${results[0]?.producto_id}-${results.length}`}
+          className="t-reveal flex flex-col divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800"
+        >
+          {results.map((r) => {
+            const wa = buildWhatsAppUrl(
+              r.tienda_telefono,
+              buildPedidoMessage(r.nombre, r.tienda_nombre),
+            );
+            const expanded = expandedId === r.producto_id;
+            const detailId = `detalle-${r.producto_id}`;
+            return (
+              <li
+                key={r.producto_id}
+                className={
+                  expanded
+                    ? "bg-mercado-50 dark:bg-zinc-900"
+                    : undefined
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedId(expanded ? null : r.producto_id)
+                  }
+                  aria-expanded={expanded}
+                  aria-controls={detailId}
+                  aria-label={`${r.nombre} en ${r.tienda_nombre ?? "Tienda"}: ver detalle`}
+                  className="flex min-h-11 w-full items-center gap-2 px-1 py-3.5 text-left"
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-initial truncate font-semibold">
+                        {r.nombre}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className="mx-1 min-w-6 flex-1 border-b-2 border-dotted border-zinc-300 dark:border-zinc-700"
+                      />
+                      {r.precio != null && (
+                        <span className="shrink-0 font-bold tabular-nums text-mercado-700 dark:text-mercado-500">
+                          {formatPrecio(r.precio, r.moneda)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="truncate text-sm text-zinc-600 dark:text-zinc-300">
+                      {r.tienda_nombre ?? "Tienda"}
+                      <span className="tabular-nums">
+                        {" "}
+                        · {formatDistance(r.distance_m)}
+                      </span>
+                      {r.categoria ? ` · ${r.categoria}` : ""}
+                    </span>
+                  </span>
+                  <ChevronDownIcon
+                    className={`h-5 w-5 shrink-0 text-zinc-400 transition-transform duration-[var(--duration-fast)] ease-[var(--ease-smooth-out)] ${expanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+                <div
+                  id={detailId}
+                  className={`grid transition-[grid-template-rows] duration-[var(--duration-fast)] ease-[var(--ease-smooth-out)] ${expanded ? "[grid-template-rows:1fr]" : "[grid-template-rows:0fr]"}`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="flex flex-col gap-2 px-1 pb-4">
+                      {r.descripcion && (
+                        <p className="text-sm leading-6 break-words text-zinc-600 dark:text-zinc-300 [text-wrap:pretty]">
+                          {r.descripcion}
+                        </p>
+                      )}
+                      {r.tienda_direccion && (
+                        <p className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-300">
+                          <PinIcon className="h-4 w-4 shrink-0" />
+                          <span className="truncate">
+                            {r.tienda_direccion}
+                          </span>
+                        </p>
+                      )}
+                      {wa ? (
+                        <a
+                          href={wa}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 inline-flex min-h-11 items-center self-start rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white transition-[background-color,transform] duration-[var(--duration-quick)] hover:bg-mercado-800 active:scale-[0.98]"
+                        >
+                          Pedir por WhatsApp
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-sm text-zinc-500">
+                          Esta tienda aún no registra WhatsApp.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -206,7 +264,7 @@ export default function BuscarPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">
             Buscar en tu barrio
           </h1>
-          <p className="text-sm text-zinc-500">Cargando…</p>
+          <TimedLoading active label="Cargando búsqueda" expectedMs={8000} />
         </main>
       }
     >

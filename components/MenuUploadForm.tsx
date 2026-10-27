@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import { formatPrecio } from "@/lib/formatPrecio";
+import { TimedLoading } from "@/components/Loading";
 
 type GeoStatus = "listo" | "localizando" | "denegado" | "no-disponible";
 
@@ -463,9 +464,10 @@ export default function MenuUploadForm() {
         disabled={!canSubmit}
         className="w-full rounded-full bg-mercado-700 px-5 py-3.5 text-base font-semibold text-white transition-colors hover:bg-mercado-800 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-500 dark:disabled:bg-zinc-700 dark:disabled:text-zinc-400"
       >
-        {submitting ? "Subiendo…" : "Subir menú"}
+        Subir menú
       </button>
 
+      <TimedLoading active={submitting} label="Subiendo tu menú" expectedMs={20000} />
       {submitError !== null && (
         <p role="alert" className="text-sm font-medium text-red-600">
           {submitError}

@@ -18,8 +18,8 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
 }) => {
   const errors = trackPageErrors(page);
   const apiLog = watchApiSearch(page);
-  // Slight stub delay keeps the loading state observable for assertions.
-  const searchStub = await stubSearchRoute(page, { delayMs: 800 });
+  // 1.6 s: pasa el umbral de 1 s y el spinner ya es observable.
+  const searchStub = await stubSearchRoute(page, { delayMs: 1600 });
   await blockMapTiles(page);
   // domcontentloaded: don't wait for map tiles to declare the page loaded.
   await page.goto("/buscar", { waitUntil: "domcontentloaded" });
@@ -78,4 +78,41 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
   ).toBeVisible();
 
   expect(errors).toEqual([]);
+});
+
+test("ticket row expands to store detail with address and WhatsApp", async ({
+  page,
+}) => {
+  const searchStub = await stubSearchRoute(page, { delayMs: 300 });
+  await blockMapTiles(page);
+  await page.goto("/buscar", { waitUntil: "domcontentloaded" });
+
+  const input = page.getByRole("searchbox", { name: "¿Qué buscas?" });
+  await input.fill("tacos al pastor");
+  const searchButton = page.getByRole("button", {
+    name: "Buscar",
+    exact: true,
+  });
+  await expect(searchButton).toBeEnabled({ timeout: 15_000 });
+  await searchButton.click();
+  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(searchStub.hits()).toBeGreaterThan(0);
+
+  const toggle = page.getByRole("button", {
+    name: "Tacos al pastor en Taquería La Esquina: ver detalle",
+  });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  const detail = page.locator(
+    `[id="detalle-11111111-1111-1111-1111-111111111111"]`,
+  );
+  await expect(detail.getByText("Av. Principal 123")).toBeVisible();
+  await expect(detail.getByText("Con piña y cilantro")).toBeVisible();
+  await expect(
+    detail.getByRole("link", { name: "Pedir por WhatsApp" }),
+  ).toHaveAttribute("href", /^https:\/\/wa\.me\/51999888777\?text=/);
 });

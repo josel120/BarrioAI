@@ -135,6 +135,11 @@ function StorePopup({ store }: { store: StoreGroup }) {
             </>
           )}
         </p>
+        {store.tienda_direccion && (
+          <p className="text-xs leading-5 text-zinc-600">
+            {store.tienda_direccion}
+          </p>
+        )}
         <p className="text-xs tabular-nums text-zinc-500">
           {formatDistance(store.distance_m)}
           {store.extras > 0 &&
@@ -145,7 +150,7 @@ function StorePopup({ store }: { store: StoreGroup }) {
             href={whatsappUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="barrio-wa mt-1.5 rounded-full bg-mercado-700 px-4 py-2 text-center text-sm font-semibold text-white transition-colors hover:bg-mercado-800"
+            className="barrio-wa mt-1.5 inline-flex min-h-11 items-center justify-center rounded-full bg-mercado-700 px-4 py-2 text-center text-sm font-semibold text-white transition-[background-color,transform] duration-[var(--duration-quick)] hover:bg-mercado-800 active:scale-[0.98]"
           >
             Pedir por WhatsApp
           </a>

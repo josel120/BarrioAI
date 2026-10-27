@@ -70,6 +70,54 @@
   color: #fff;
 }
 
+/* Motion tokens (barrio-transiciones-ui): reference these, never loose
+   durations in components. */
+:root {
+  --duration-micro: 80ms;
+  --duration-quick: 150ms;
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --blur-small: 2px;
+}
+
+/* Skeleton -> content reveal: cross-fade + cross-blur, soft rise. */
+.t-reveal {
+  animation: t-reveal var(--duration-slow) var(--ease-smooth-out) both;
+}
+
+@keyframes t-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(var(--blur-small));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+/* In-place state swap ("Buscando…" -> "N resultados cerca de ti"). */
+.t-text-swap {
+  animation: t-text-swap var(--duration-quick) ease-in-out both;
+}
+
+@keyframes t-text-swap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+    filter: blur(var(--blur-small));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   ::before,
