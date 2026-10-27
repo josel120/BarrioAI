@@ -1,9 +1,19 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
 import { formatPrecio } from "@/lib/formatPrecio";
+import { formatDistance } from "@/lib/formatDistance";
+import type { SearchResultRow } from "@/lib/search/types";
+import { MapSkeleton, ResultsSkeleton } from "@/components/SearchSkeletons";
+
+// Leaflet requires `window`: load the map only on the client.
+const MapSearch = dynamic(
+  () => import("@/components/MapSearch").then((m) => m.MapSearch),
+  { ssr: false, loading: () => <MapSkeleton /> },
+);
 
 interface SearchResult {
   id: string;
@@ -19,26 +29,7 @@ interface SearchResult {
   tiendas?: { nombre: string };
 }
 
-// Row shape returned by POST /api/search (match_productos RPC).
-interface ApiSearchRow {
-  producto_id: string;
-  tienda_id: string;
-  tienda_nombre: string;
-  nombre: string;
-  precio: number | null;
-  moneda: string;
-  categoria: string;
-  descripcion: string | null;
-  distance_m: number;
-  similarity: number;
-}
-
 type Status = "idle" | "loading" | "error";
-
-function formatDistance(m?: number): string {
-  if (m == null) return "";
-  return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`;
-}
 
 function BuscarContenido() {
   const { coords, error: geoError } = useGeolocation();
@@ -46,6 +37,7 @@ function BuscarContenido() {
   const initialQ = searchParams.get("q") ?? "";
   const [q, setQ] = useState(initialQ);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [mapRows, setMapRows] = useState<SearchResultRow[]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [searched, setSearched] = useState(false);
@@ -61,12 +53,14 @@ function BuscarContenido() {
         body: JSON.stringify({ q: query, lat, lng }),
       });
       const data = (await res.json()) as {
-        results?: ApiSearchRow[];
+        results?: SearchResultRow[];
         error?: string;
       };
       if (!res.ok) throw new Error(data.error ?? "Error en búsqueda");
+      const rows = data.results ?? [];
+      setMapRows(rows);
       setResults(
-        (data.results ?? []).map((r) => ({
+        rows.map((r) => ({
           id: r.producto_id,
           nombre: r.nombre,
           precio: r.precio,
@@ -74,6 +68,7 @@ function BuscarContenido() {
           categoria: r.categoria,
           descripcion: r.descripcion,
           tienda_nombre: r.tienda_nombre,
+          tienda_telefono: r.tienda_telefono,
           distancia_metros: r.distance_m,
           similitud: r.similarity,
         })),
@@ -137,6 +132,8 @@ function BuscarContenido() {
         </p>
       )}
 
+      {coords && <MapSearch user={coords} results={mapRows} />}
+
       <p aria-live="polite" className="min-h-5 text-sm text-zinc-500">
         {status === "loading"
           ? "Buscando…"
@@ -144,6 +141,8 @@ function BuscarContenido() {
             ? `${results.length} ${results.length === 1 ? "resultado" : "resultados"} cerca de ti`
             : ""}
       </p>
+
+      {status === "loading" && <ResultsSkeleton />}
 
       {status === "error" && (
         <p className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-950 dark:text-red-200">

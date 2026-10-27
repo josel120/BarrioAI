@@ -19,7 +19,11 @@ export const metadata: Metadata = {
 
 const TEMA_INIT = `(function(){try{if(localStorage.getItem("barrioai-tema")==="meta"){document.documentElement.dataset.theme="meta"}}catch(e){}})()`;
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="es" className={`${archivo.variable} h-full`}>
       <body className="flex min-h-full flex-col">
