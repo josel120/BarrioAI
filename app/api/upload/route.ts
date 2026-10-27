@@ -6,6 +6,8 @@ import {
   META_VISION_USER_PROMPT,
 } from "@/lib/ai/prompts";
 import { embedTexts } from "@/lib/ai/embeddings";
+import { checkRateLimit, clientIp } from "@/lib/rateLimit";
+import { logError, logInfo } from "@/lib/log";
 
 export const runtime = "nodejs"; // Required for Buffer / Service Role
 export const maxDuration = 60;
@@ -131,7 +133,20 @@ async function generateEmbeddings(
 
 // --- Route Handler ---
 export async function POST(req: NextRequest) {
+  const requestId = crypto.randomUUID();
+  const startedAt = performance.now();
   try {
+    const rate = checkRateLimit(`upload:${clientIp(req)}`, 5, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: "Demasiadas subidas. Espera un momento e intenta de nuevo." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(rate.retryAfterSeconds) },
+        },
+      );
+    }
+
     const formData = await req.formData();
     const image = formData.get("image") as File | null;
     const tiendaId = formData.get("tiendaId") as string | null;
@@ -235,6 +250,13 @@ export async function POST(req: NextRequest) {
     if (prodError)
       throw new Error(`Productos upsert failed: ${prodError.message}`);
 
+    logInfo("upload.ok", {
+      request_id: requestId,
+      route: "/api/upload",
+      ms: Math.round(performance.now() - startedAt),
+      productos: productosRows.length,
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -245,7 +267,12 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (error) {
-    console.error("[BarrioAI Upload Error]", error);
+    logError("upload.failed", {
+      request_id: requestId,
+      route: "/api/upload",
+      ms: Math.round(performance.now() - startedAt),
+      error,
+    });
     if (error instanceof z.ZodError || error instanceof SyntaxError)
       return NextResponse.json(
         { error: "AI returned malformed structure", details: String(error) },
