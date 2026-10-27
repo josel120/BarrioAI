@@ -1,4 +1,4 @@
-# BarrioAI CI: typecheck + lint + build. No secrets required.
+# BarrioAI CI: typecheck + lint + build + e2e. No secrets required.
 name: CI
 
 on:
@@ -57,11 +57,13 @@ jobs:
     # Empty-but-present env: exercises the app's lazy-client behavior
     # (build must succeed without real credentials).
     env:
+      NEXT_TELEMETRY_DISABLED: 1
       NEXT_PUBLIC_SUPABASE_URL: ""
       SUPABASE_SERVICE_ROLE_KEY: ""
       META_API_BASE_URL: ""
       META_API_KEY: ""
       META_VISION_MODEL: ""
+      META_EMBEDDING_MODEL: ""
       OPENAI_API_KEY: ""
       EMBEDDING_MODEL: ""
     steps:
@@ -71,4 +73,55 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          # Unique key per commit; falls back to the newest cache for
+          # this lockfile so unchanged builds stay incremental.
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('package-lock.json') }}-
       - run: npm run build
+
+  e2e:
+    name: E2E
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          # Browsers only change when the Playwright version in the
+          # lockfile changes, so the lockfile hash is the whole key.
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+      - name: Install Playwright chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium --with-deps
+      # Cached browsers restore without system libs, so still apt-get
+      # the OS deps on a cache hit (fast no-op when present).
+      - name: Install Playwright system deps
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+      # Starts `next dev` via webServer; the suite stubs /api/search,
+      # so no API keys are needed. Chromium only: the `edge` project
+      # needs system Edge, which ubuntu runners don't have.
+      - run: npx playwright test --project=chromium
+      - name: Upload E2E failure artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          # Traces (on retry) and failure screenshots. Empty on green
+          # runs, hence if-no-files-found: ignore.
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
