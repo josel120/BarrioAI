@@ -20,6 +20,7 @@ interface MenuItem {
 }
 
 interface UploadSuccess {
+  claim_token?: string;
   success: boolean;
   tienda_id: string;
   productos_insertados: number;
@@ -108,6 +109,7 @@ export default function MenuUploadForm() {
   const [manualLng, setManualLng] = useState("");
   const [nombre, setNombre] = useState("");
   const [tiendaId, setTiendaId] = useState("");
+  const [claimToken, setClaimToken] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<UploadSuccess | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -220,6 +222,7 @@ export default function MenuUploadForm() {
       const formData = new FormData();
       formData.append("image", payload, "menu.jpg");
       if (tiendaId.trim() !== "") formData.append("tiendaId", tiendaId.trim());
+      if (claimToken.trim() !== "") formData.append("claimToken", claimToken.trim());
       if (nombre.trim() !== "") formData.append("nombre", nombre.trim());
       formData.append("lat", String(coords.lat));
       formData.append("lng", String(coords.lng));
@@ -438,6 +441,22 @@ export default function MenuUploadForm() {
         </div>
       </div>
 
+      <div className="flex flex-col gap-1">
+        <label htmlFor="claimToken" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
+          Código de tu tienda
+        </label>
+        <input
+          id="claimToken"
+          name="claimToken"
+          type="text"
+          value={claimToken}
+          onChange={(e) => setClaimToken(e.target.value)}
+          placeholder="Requerido si actualizas una tienda existente"
+          autoComplete="off"
+          className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        />
+      </div>
+
       {/* 4. Enviar */}
       <button
         type="submit"
@@ -464,6 +483,11 @@ export default function MenuUploadForm() {
           <p className="truncate text-sm text-zinc-700 dark:text-zinc-200">
             Tienda: <span className="font-mono">{result.tienda_id}</span>
           </p>
+          {result.claim_token && (
+            <p role="alert" className="text-sm text-zinc-700 dark:text-zinc-200">
+              Guarda tu código de tienda: <span className="font-mono font-bold">{result.claim_token}</span>. Lo necesitarás para actualizar tu menú.
+            </p>
+          )}
           <p className="text-sm text-zinc-700 dark:text-zinc-200">
             Productos guardados: {result.productos_insertados}
             {result.data.store_name !== null &&
