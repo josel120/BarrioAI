@@ -76,6 +76,33 @@ Package manager is **npm** (`package-lock.json`). Never add a
 6. **mercado-* utilities only** for brand color — the Meta theme
    (`data-theme="meta"`) remaps the same vars. No hardcoded greens/blues.
 
+## Hackathon (Meta Global AI Developer Hackathon)
+
+Virtual, Oct 26 – Nov 4, 2026. Submit via the Cerebral Valley portal by
+**Nov 4, 9:00 PM ET** (Nov 5, 02:00 UTC). Judging Nov 4–8, finals Nov 9.
+Dates can change at Meta's sole discretion — recheck the event page
+before the deadline. The Official Rules take priority over these notes.
+
+- **Theme fit**: "Build for Your World" — every feature must show the
+  real-world problem it solves (digitalizing local commerce). Impact
+  is 30% of the score.
+- **Meta-first, always**: every AI call goes through the Meta Model API
+  (vision extraction + embeddings); OpenAI stays fallback-only. "Use of
+  Meta AI Tooling" is 25% — combining Meta products end to end (vision
+  → embeddings → search) beats a single basic integration.
+- **Demo-ready at all times**: working live demo + demo video is 25%.
+  Keep the golden path (photo → extraction → search → WhatsApp) green
+  on `main`; never merge a build that breaks it during the hackathon.
+- **One track only**: Indie (creativity, technical ambition, works) or
+  Startup (execution, holds up in production). Technical depth is 20% —
+  keep CI green and the code shippable either way.
+- **Original work only**: we must solely own everything submitted.
+  Third-party help and OSS are allowed only if we own the rights and
+  honor their licenses. Never commit secrets or real merchant PII.
+- **Nothing shared is confidential**: anything shown to organizers
+  (pitches, code, demos) carries a perpetual royalty-free license and
+  may be recorded and reused. Demo with sample/made-up data only.
+
 ## Skills & Conventions
 
 - UI work: read `.agents/skills/barrio-ui/SKILL.md` first (tokens, app
