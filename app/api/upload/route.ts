@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
   META_VISION_SYSTEM_PROMPT,
@@ -42,6 +43,25 @@ function getSupabase() {
 }
 
 // --- Helpers ---
+// Allowlist: client-supplied MIME is spoofable, so only raster formats we
+// can safely store/serve are accepted (SVG would allow stored XSS via the
+// public bucket). Extension always comes from this map, never from input.
+const ALLOWED_IMAGE_TYPES = new Map([
+  ["image/jpeg", "jpg"],
+  ["image/png", "png"],
+  ["image/webp", "webp"],
+]);
+
+function hashClaimToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function verifyClaimToken(token: string, storedHash: string): boolean {
+  const a = Buffer.from(hashClaimToken(token), "hex");
+  const b = Buffer.from(storedHash, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 async function fileToDataUrl(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
   return `data:${file.type};base64,${buffer.toString("base64")}`;
@@ -135,6 +155,9 @@ async function generateEmbeddings(
 export async function POST(req: NextRequest) {
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
+  // Tracked so any failure can remove the orphaned Storage blob.
+  let uploadedPath: string | null = null;
+  let supabaseRef: ReturnType<typeof getSupabase> | null = null;
   try {
     const rate = checkRateLimit(`upload:${clientIp(req)}`, 5, 60_000);
     if (!rate.allowed) {
@@ -151,17 +174,18 @@ export async function POST(req: NextRequest) {
     const image = formData.get("image") as File | null;
     const tiendaId = formData.get("tiendaId") as string | null;
     const nombreForm = formData.get("nombre") as string | null;
+    const claimToken = formData.get("claimToken") as string | null;
     const lat = parseFloat(formData.get("lat") as string);
     const lng = parseFloat(formData.get("lng") as string);
 
     // 1. Validation
-    if (!image || !image.type.startsWith("image/"))
+    if (!image || !ALLOWED_IMAGE_TYPES.has(image.type))
       return NextResponse.json(
-        { error: "Valid image required" },
+        { error: "Se requiere una imagen JPG, PNG o WebP válida" },
         { status: 400 },
       );
     if (image.size > 8 * 1024 * 1024)
-      return NextResponse.json({ error: "Image exceeds 8MB" }, { status: 413 });
+      return NextResponse.json({ error: "La imagen supera los 8 MB" }, { status: 413 });
     if (
       isNaN(lat) ||
       lat < -90 ||
@@ -171,15 +195,17 @@ export async function POST(req: NextRequest) {
       lng > 180
     )
       return NextResponse.json(
-        { error: "Invalid geolocation coordinates" },
+        { error: "Coordenadas de ubicación inválidas" },
         { status: 400 },
       );
 
     const supabase = getSupabase();
+    // supabaseRef lets the outer catch clean up the uploaded blob.
+    supabaseRef = supabase;
 
     // 2. Parallel Execution: Meta Inference + Storage Upload (Low Latency)
     const dataUrlPromise = fileToDataUrl(image);
-    const fileName = `${crypto.randomUUID()}.${image.type.split("/")[1] ?? "jpg"}`;
+    const fileName = `${crypto.randomUUID()}.${ALLOWED_IMAGE_TYPES.get(image.type)!}`;
 
     const [extracted, storageResult] = await Promise.all([
       dataUrlPromise.then(callMetaVision),
@@ -188,18 +214,63 @@ export async function POST(req: NextRequest) {
         .upload(fileName, image, { contentType: image.type, upsert: false }),
     ]);
 
-    if (extracted.items.length === 0)
+    if (storageResult.error)
+      throw new Error(`Storage upload failed: ${storageResult.error.message}`);
+    uploadedPath = storageResult.data?.path ?? null;
+
+    if (extracted.items.length === 0) {
+      if (uploadedPath)
+        await supabase.storage.from("menus").remove([uploadedPath]);
       return NextResponse.json(
-        { error: "No products detected in image" },
+        { error: "No se detectaron productos en la imagen" },
         { status: 422 },
       );
+    }
 
     const fotoMenuUrl = storageResult.data
       ? supabase.storage.from("menus").getPublicUrl(storageResult.data.path)
           .data.publicUrl
       : null;
 
-    // 3. Upsert Tienda (PostGIS Point: Note lng is X, lat is Y)
+    // 3a. Ownership: updating an existing tienda requires its claim token.
+// The service_role client bypasses RLS, so this check is the only guard
+// against overwriting someone else's tienda. Legacy tiendas without a
+// hash are claimed by the first token presented.
+let newClaimToken: string | null = null;
+if (tiendaId) {
+  if (!claimToken)
+    return NextResponse.json(
+      { error: "Falta el código de tu tienda para actualizarla" },
+      { status: 401 },
+    );
+  const { data: existing } = await supabase
+    .from("tiendas")
+    .select("claim_hash")
+    .eq("id", tiendaId)
+    .single();
+  if (!existing)
+    return NextResponse.json(
+      { error: "No se encontró la tienda indicada" },
+      { status: 404 },
+    );
+  if (existing.claim_hash) {
+    if (!verifyClaimToken(claimToken, existing.claim_hash))
+      return NextResponse.json(
+        { error: "El código de tienda no es válido" },
+        { status: 403 },
+      );
+  } else {
+    await supabase
+      .from("tiendas")
+      .update({ claim_hash: hashClaimToken(claimToken) })
+      .eq("id", tiendaId)
+      .is("claim_hash", null);
+  }
+} else {
+  newClaimToken = randomBytes(32).toString("base64url");
+}
+
+// 3. Upsert Tienda (PostGIS Point: Note lng is X, lat is Y)
     const tiendaPayload = {
       nombre: nombreForm || extracted.store_name || "Mi Tienda",
       foto_menu_url: fotoMenuUrl,
@@ -216,7 +287,7 @@ export async function POST(req: NextRequest) {
           .single()
       : await supabase
           .from("tiendas")
-          .insert(tiendaPayload)
+          .insert({ ...tiendaPayload, claim_hash: hashClaimToken(newClaimToken!) })
           .select("id")
           .single();
 
@@ -239,6 +310,8 @@ export async function POST(req: NextRequest) {
         categoria: p.category,
         descripcion: p.description,
         embedding: embeddings[i] ? `[${embeddings[i]!.join(",")}]` : null,
+        embedding_status: embeddings[i] ? "ready" : "pending",
+        embedding_attempts: embeddings[i] ? 0 : 1,
         updated_at: new Date().toISOString(),
       }),
     );
@@ -262,11 +335,20 @@ export async function POST(req: NextRequest) {
         success: true,
         tienda_id: tienda.id,
         productos_insertados: productosRows.length,
+        // Returned only at creation: the merchant must save it to update later.
+        ...(newClaimToken ? { claim_token: newClaimToken } : {}),
         data: extracted,
       },
       { status: 201 },
     );
   } catch (error) {
+    // Best-effort orphan cleanup: never mask the original error.
+    if (uploadedPath && supabaseRef) {
+      await supabaseRef.storage
+        .from("menus")
+        .remove([uploadedPath])
+        .catch(() => undefined);
+    }
     logError("upload.failed", {
       request_id: requestId,
       route: "/api/upload",
@@ -275,11 +357,11 @@ export async function POST(req: NextRequest) {
     });
     if (error instanceof z.ZodError || error instanceof SyntaxError)
       return NextResponse.json(
-        { error: "AI returned malformed structure", details: String(error) },
+        { error: "La IA devolvió una respuesta inválida. Intenta de nuevo." },
         { status: 502 },
       );
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Error interno del servidor. Intenta más tarde." },
       { status: 500 },
     );
   }
