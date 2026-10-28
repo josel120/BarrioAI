@@ -18,6 +18,8 @@
  * dimension is rejected (returns null) instead of corrupting the index.
  */
 
+import { LIMITS } from "@/lib/limits";
+
 export const EMBEDDING_DIMENSIONS = 1536;
 
 const EMBEDDING_TIMEOUT_MS = 15_000;
@@ -105,8 +107,33 @@ export async function embedTexts(
   }
 }
 
+// Identical demo queries ("ceviche", "pollo a la brasa") repeat all day;
+// caching their vectors in-memory (per instance) saves one paid provider
+// call per repeat. Bounded size + TTL so it can never grow stale or large.
+const queryCache = new Map<string, { vector: number[]; expiresAt: number }>();
+
 /** Embed a single search query. Returns null when unavailable. Never throws. */
 export async function embedQuery(query: string): Promise<number[] | null> {
+  const cacheKey =
+    LIMITS.queryEmbeddingCacheEntries > 0
+      ? query.trim().toLowerCase().replace(/\s+/g, " ")
+      : null;
+  if (cacheKey) {
+    const cached = queryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.vector;
+    if (cached) queryCache.delete(cacheKey);
+  }
   const [vector] = await embedTexts([query]);
-  return vector ?? null;
+  if (!vector) return null;
+  if (cacheKey) {
+    if (queryCache.size >= LIMITS.queryEmbeddingCacheEntries) {
+      const oldest = queryCache.keys().next().value;
+      if (oldest !== undefined) queryCache.delete(oldest);
+    }
+    queryCache.set(cacheKey, {
+      vector,
+      expiresAt: Date.now() + LIMITS.queryEmbeddingCacheTtlMs,
+    });
+  }
+  return vector;
 }

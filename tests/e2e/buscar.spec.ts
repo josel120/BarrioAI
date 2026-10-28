@@ -40,8 +40,7 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
   await expect(searchButton).toBeEnabled({ timeout: 15_000 });
   await searchButton.click();
 
-  // Proves the submit handler ran (before asserting its outcome).
-  await expect(page.getByText("Buscando…")).toBeVisible();
+  // Proves the submit handler ran: solo skeleton, sin segundo loading.
   await expect(
     page.locator('[aria-label="Cargando resultados…"]'),
   ).toBeVisible();
@@ -73,7 +72,7 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
   await page.locator(".barrio-pin").nth(1).click();
   await expect(
     page
-      .locator(".leaflet-popup-content")
+      .locator("[data-tile]")
       .getByText("Esta tienda aún no registra WhatsApp."),
   ).toBeVisible();
 
@@ -113,6 +112,20 @@ test("ticket row expands to store detail with address and WhatsApp", async ({
   await expect(detail.getByText("Av. Principal 123")).toBeVisible();
   await expect(detail.getByText("Con piña y cilantro")).toBeVisible();
   await expect(
-    detail.getByRole("link", { name: "Pedir por WhatsApp" }),
+    detail.getByRole("link", { name: "Ver tienda" }),
+  ).toBeVisible();
+  // WhatsApp se ve sin expandir: es el cierre del golden path.
+  await expect(
+    page.getByRole("link", { name: "Pedir Tacos al pastor por WhatsApp" }),
   ).toHaveAttribute("href", /^https:\/\/wa\.me\/51999888777\?text=/);
+});
+
+test("query de una letra muestra el hint en vez de fallar en silencio", async ({ page }) => {
+  await stubSearchRoute(page, { delayMs: 100 });
+  await blockMapTiles(page);
+  await page.goto("/buscar", { waitUntil: "domcontentloaded" });
+  const input = page.getByRole("searchbox", { name: "¿Qué buscas?" });
+  await input.fill("t");
+  await page.getByRole("button", { name: "Buscar", exact: true }).click();
+  await expect(page.getByText("Escribe al menos 2 letras para buscar.")).toBeVisible();
 });

@@ -30,7 +30,11 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  experimental: { serverActions: { bodySizeLimit: "8mb" } },
+  experimental: {
+    serverActions: { bodySizeLimit: "8mb" },
+    // Cache del router en el cliente: volver a Inicio/Buscar no re-pide la pagina por 30s.
+    staleTimes: { dynamic: 30, static: 180 },
+  },
   // Playwright baseURL is http://127.0.0.1:3000; allow its HMR requests.
   allowedDevOrigins: ["127.0.0.1"],
   turbopack: {

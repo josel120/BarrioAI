@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { embedQuery, isEmbeddingAvailable } from "@/lib/ai/embeddings";
 import { checkRateLimit, clientIp } from "@/lib/rateLimit";
+import { LIMITS } from "@/lib/limits";
 import { logError, logInfo } from "@/lib/log";
 import type { SearchResultRow } from "@/lib/search/types";
 
@@ -14,7 +15,7 @@ const SearchBodySchema = z.object({
   lng: z.number().min(-180).max(180),
   radius_m: z.number().int().min(100).max(50000).default(5000),
   threshold: z.number().min(0).max(1).default(0.3),
-  limit: z.number().int().min(1).max(50).default(20),
+  limit: z.number().int().min(1).max(LIMITS.searchMaxResults).default(20),
 });
 
 type SearchBody = z.infer<typeof SearchBodySchema>;
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
 
-  const rate = checkRateLimit(`search:${clientIp(req)}`, 60, 60_000);
+  const rate = checkRateLimit(`search:${clientIp(req)}`, LIMITS.searchRatePerMinute, 60_000);
   if (!rate.allowed) {
     return NextResponse.json(
       { error: "Demasiadas búsquedas. Espera un momento e intenta de nuevo." },

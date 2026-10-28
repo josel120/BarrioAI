@@ -1,9 +1,9 @@
-import { TimedLoading } from "@/components/Loading";
+import { ResultsSkeleton } from "@/components/SearchSkeletons";
 
 export default function Loading() {
   return (
-    <main className="flex flex-col gap-4">
-      <TimedLoading active label="Cargando" expectedMs={8000} />
-    </main>
+    <div className="flex flex-col gap-4">
+      <ResultsSkeleton />
+    </div>
   );
 }

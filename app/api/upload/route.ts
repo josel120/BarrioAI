@@ -8,6 +8,7 @@ import {
 } from "@/lib/ai/prompts";
 import { embedTexts } from "@/lib/ai/embeddings";
 import { checkRateLimit, clientIp } from "@/lib/rateLimit";
+import { LIMITS } from "@/lib/limits";
 import { logError, logInfo } from "@/lib/log";
 
 export const runtime = "nodejs"; // Required for Buffer / Service Role
@@ -24,10 +25,43 @@ const ExtractedProductSchema = z.object({
 const MetaOutputSchema = z.object({
   store_name: z.string().nullable().catch(null),
   currency: z.string().length(3).default("PEN").catch("PEN"),
-  items: z.array(ExtractedProductSchema).max(200),
+  items: z.array(ExtractedProductSchema).max(LIMITS.uploadMaxProducts),
 });
 
 type ExtractedProduct = z.infer<typeof ExtractedProductSchema>;
+
+const TelefonoSchema = z
+  .string()
+  .trim()
+  .superRefine((val, ctx) => {
+    if (!/^\+?[\d\s\-()]+$/.test(val)) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "El WhatsApp de la tienda no es válido. Escribe solo dígitos, espacios, guiones o un + inicial (9 a 15 dígitos).",
+      });
+      return;
+    }
+    const digitos = val.replace(/\D/g, "");
+    if (digitos.length < 9 || digitos.length > 15) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "El WhatsApp de la tienda debe tener entre 9 y 15 dígitos. Revísalo e intenta de nuevo.",
+      });
+    }
+  })
+  .transform((val) => val.replace(/\D/g, ""));
+
+const DireccionSchema = z
+  .string()
+  .trim()
+  .max(200, "La dirección de la tienda no puede superar los 200 caracteres. Acórtala e intenta de nuevo.");
+
+const ContactoSchema = z.object({
+  telefono: TelefonoSchema.optional(),
+  direccion: DireccionSchema.optional(),
+});
 
 interface ChatCompletionResponse {
   choices: { message: { content: string } }[];
@@ -159,7 +193,11 @@ export async function POST(req: NextRequest) {
   let uploadedPath: string | null = null;
   let supabaseRef: ReturnType<typeof getSupabase> | null = null;
   try {
-    const rate = checkRateLimit(`upload:${clientIp(req)}`, 5, 60_000);
+    const ip = clientIp(req);
+    const hourRate = checkRateLimit(`upload-h:${ip}`, LIMITS.uploadRatePerHour, 3_600_000);
+    const rate = !hourRate.allowed
+      ? hourRate
+      : checkRateLimit(`upload:${ip}`, LIMITS.uploadRatePerMinute, 60_000);
     if (!rate.allowed) {
       return NextResponse.json(
         { error: "Demasiadas subidas. Espera un momento e intenta de nuevo." },
@@ -170,7 +208,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const formData = await req.formData();
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json(
+        { error: "Solicitud inválida: envía el formulario con una imagen JPG, PNG o WebP y tu ubicación." },
+        { status: 400 },
+      );
+    }
     const image = formData.get("image") as File | null;
     const tiendaId = formData.get("tiendaId") as string | null;
     const nombreForm = formData.get("nombre") as string | null;
@@ -184,8 +230,8 @@ export async function POST(req: NextRequest) {
         { error: "Se requiere una imagen JPG, PNG o WebP válida" },
         { status: 400 },
       );
-    if (image.size > 8 * 1024 * 1024)
-      return NextResponse.json({ error: "La imagen supera los 8 MB" }, { status: 413 });
+    if (image.size > LIMITS.uploadMaxImageBytes)
+      return NextResponse.json({ error: `La imagen supera los ${Math.round(LIMITS.uploadMaxImageBytes / (1024 * 1024))} MB. Elige una foto más pequeña.` }, { status: 413 });
     if (
       isNaN(lat) ||
       lat < -90 ||
@@ -199,16 +245,79 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
 
+    const telefonoRaw = formData.get("telefono");
+    const direccionRaw = formData.get("direccion");
+    if (
+      (telefonoRaw !== null && typeof telefonoRaw !== "string") ||
+      (direccionRaw !== null && typeof direccionRaw !== "string")
+    )
+      return NextResponse.json(
+        { error: "El WhatsApp y la dirección de la tienda deben ser texto. Revísalos e intenta de nuevo." },
+        { status: 400 },
+      );
+    const contactoInput: { telefono?: string; direccion?: string } = {};
+    if (typeof telefonoRaw === "string" && telefonoRaw.trim() !== "")
+      contactoInput.telefono = telefonoRaw;
+    if (typeof direccionRaw === "string" && direccionRaw.trim() !== "")
+      contactoInput.direccion = direccionRaw;
+    const contactoParsed = ContactoSchema.safeParse(contactoInput);
+    if (!contactoParsed.success)
+      return NextResponse.json(
+        {
+          error:
+            contactoParsed.error.issues[0]?.message ??
+            "El WhatsApp o la dirección de la tienda no son válidos. Revísalos e intenta de nuevo.",
+        },
+        { status: 400 },
+      );
+    const telefono = contactoParsed.data.telefono;
+    const direccion = contactoParsed.data.direccion;
+
+    const phase = formData.get("phase") as string | null;
+    const itemsRaw = formData.get("items") as string | null;
+    if (phase === "extract") {
+      const extractedOnly = await fileToDataUrl(image).then(callMetaVision);
+      if (extractedOnly.items.length === 0)
+        return NextResponse.json({ error: "No se detectaron productos en la imagen" }, { status: 422 });
+      return NextResponse.json({ data: extractedOnly }, { status: 200 });
+    }
+    let reviewed: z.infer<typeof MetaOutputSchema> | null = null;
+    if (itemsRaw) {
+      try { reviewed = MetaOutputSchema.parse(JSON.parse(itemsRaw)); } catch {
+        return NextResponse.json({ error: "La lista revisada no es válida. Revisa nombres y precios." }, { status: 400 });
+      }
+      if (reviewed.items.length === 0)
+        return NextResponse.json({ error: "Agrega al menos un producto antes de publicar." }, { status: 422 });
+    }
     const supabase = getSupabase();
     // supabaseRef lets the outer catch clean up the uploaded blob.
     supabaseRef = supabase;
+
+    // Free-tier global caps: refuse NEW tiendas once the demo quota is
+    // full (updates to existing tiendas stay allowed). Two head-counts
+    // per publish are negligible next to the vision/embedding calls.
+    if (!tiendaId) {
+      const [tiendasCount, productosCount] = await Promise.all([
+        supabase.from("tiendas").select("id", { count: "exact", head: true }),
+        supabase.from("productos").select("id", { count: "exact", head: true }),
+      ]);
+      if (
+        (tiendasCount.count ?? 0) >= LIMITS.maxTiendas ||
+        (productosCount.count ?? 0) >= LIMITS.maxProductos
+      ) {
+        return NextResponse.json(
+          { error: "Alcanzamos el cupo de tiendas de la demo. Gracias por tu interés; vuelve pronto." },
+          { status: 503 },
+        );
+      }
+    }
 
     // 2. Parallel Execution: Meta Inference + Storage Upload (Low Latency)
     const dataUrlPromise = fileToDataUrl(image);
     const fileName = `${crypto.randomUUID()}.${ALLOWED_IMAGE_TYPES.get(image.type)!}`;
 
     const [extracted, storageResult] = await Promise.all([
-      dataUrlPromise.then(callMetaVision),
+      reviewed ? Promise.resolve(reviewed) : dataUrlPromise.then(callMetaVision),
       supabase.storage
         .from("menus")
         .upload(fileName, image, { contentType: image.type, upsert: false }),
@@ -237,6 +346,7 @@ export async function POST(req: NextRequest) {
 // against overwriting someone else's tienda. Legacy tiendas without a
 // hash are claimed by the first token presented.
 let newClaimToken: string | null = null;
+let replacedFotoPath: string | null = null;
 if (tiendaId) {
   if (!claimToken)
     return NextResponse.json(
@@ -245,9 +355,16 @@ if (tiendaId) {
     );
   const { data: existing } = await supabase
     .from("tiendas")
-    .select("claim_hash")
+    .select("claim_hash, foto_menu_url")
     .eq("id", tiendaId)
     .single();
+  // Remember the previous menu photo so a successful update can delete
+  // it; otherwise every update leaks one orphan blob into the 1 GB bucket.
+  if (existing?.foto_menu_url) {
+    const marker = "/menus/";
+    const idx = existing.foto_menu_url.indexOf(marker);
+    if (idx >= 0) replacedFotoPath = existing.foto_menu_url.slice(idx + marker.length);
+  }
   if (!existing)
     return NextResponse.json(
       { error: "No se encontró la tienda indicada" },
@@ -275,6 +392,8 @@ if (tiendaId) {
       nombre: nombreForm || extracted.store_name || "Mi Tienda",
       foto_menu_url: fotoMenuUrl,
       ubicacion: `POINT(${lng} ${lat})`,
+      ...(telefono !== undefined ? { telefono } : {}),
+      ...(direccion !== undefined ? { direccion } : {}),
       updated_at: new Date().toISOString(),
     };
 
@@ -322,6 +441,14 @@ if (tiendaId) {
 
     if (prodError)
       throw new Error(`Productos upsert failed: ${prodError.message}`);
+
+    // Publish succeeded: drop the photo this update replaced (best-effort).
+    if (replacedFotoPath && replacedFotoPath !== uploadedPath) {
+      await supabase.storage
+        .from("menus")
+        .remove([replacedFotoPath])
+        .catch(() => undefined);
+    }
 
     logInfo("upload.ok", {
       request_id: requestId,
