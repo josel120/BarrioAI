@@ -62,7 +62,7 @@ export async function assertMapResults(
   const pins = page.locator(".barrio-pin");
   await expect(pins).toHaveCount(2);
   await pins.first().click();
-  const popup = page.locator(".leaflet-popup-content");
+  const popup = page.locator("[data-tile]");
   await expect(popup.getByText(expected.storeName)).toBeVisible();
   await expect(popup.getByText(expected.productName)).toBeVisible();
   await expect(popup.getByText(expected.priceText)).toBeVisible();
@@ -81,10 +81,10 @@ export async function blockMapTiles(page: Page): Promise<void> {
   });
 }
 
-/** Closes the open Leaflet popup via its × button, freeing covered pins. */
+/** Cierra el tile del mapa con su boton, liberando los pines cubiertos. */
 export async function closeMapPopup(page: Page): Promise<void> {
-  await page.locator(".leaflet-popup-close-button").click();
-  await expect(page.locator(".leaflet-popup-content")).toBeHidden();
+  await page.getByRole("button", { name: /Cerrar detalle de/ }).click();
+  await expect(page.locator("[data-tile]")).toHaveCount(0);
 }
 
 /** Collects window errors; assert the returned array is empty at test end. */

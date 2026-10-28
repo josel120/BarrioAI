@@ -15,44 +15,21 @@ async function search(page: import("@playwright/test").Page) {
   await button.click();
 }
 
-test("carga <1 s: sin feedback visual, pasa directo a resultados", async ({
-  page,
-}) => {
+test("carga rapida: pasa a resultados sin barra de progreso", async ({ page }) => {
   await stubSearchRoute(page, { delayMs: 300 });
   await blockMapTiles(page);
   await search(page);
   await expect(page.getByRole("progressbar")).toHaveCount(0);
-  await expect(page.getByText("Buscando…")).toHaveCount(0);
-  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({ timeout: 15_000 });
 });
 
-test("carga 1–4 s: muestra spinner y luego resultados", async ({ page }) => {
-  await stubSearchRoute(page, { delayMs: 2500 });
+test("carga lenta: muestra solo el skeleton, sin spinner ni porcentaje", async ({ page }) => {
+  await stubSearchRoute(page, { delayMs: 3500 });
   await blockMapTiles(page);
   await search(page);
-  await expect(page.getByText("Buscando…")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[aria-label="Cargando resultados…"]')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("progressbar")).toHaveCount(0);
-  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({
-    timeout: 15_000,
-  });
-});
-
-test("carga >4 s: muestra progreso con % y cuánto falta, y termina en resultados", async ({
-  page,
-}) => {
-  await stubSearchRoute(page, { delayMs: 6500 });
-  await blockMapTiles(page);
-  await search(page);
-  const bar = page.getByRole("progressbar", { name: "Buscando…" });
-  await expect(bar).toBeVisible({ timeout: 15_000 });
-  const now = Number(await bar.getAttribute("aria-valuenow"));
-  expect(now).toBeGreaterThan(0);
-  expect(now).toBeLessThan(100);
-  await expect(page.getByText(/Falta \d+%$/)).toBeVisible();
-  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(bar).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByText(/Falta \d+%$/)).toHaveCount(0);
+  await expect(page.getByText("3 resultados cerca de ti")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[aria-label="Cargando resultados…"]')).toHaveCount(0);
 });

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { embedTexts } from "@/lib/ai/embeddings";
+import { LIMITS } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const MAX_ATTEMPTS = 5;
-const BATCH_SIZE = 50;
+const BATCH_SIZE = LIMITS.cronRetryBatch;
 
 // Lazy: module import must stay side-effect free for `next build`.
 function getSupabase() {

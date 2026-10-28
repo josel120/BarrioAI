@@ -7,6 +7,8 @@
   --color-mercado-50: #f0fdf4;
   --color-mercado-100: #dcfce7;
   --color-mercado-200: #bbf7d0;
+  --color-mercado-300: #86efac;
+  --color-mercado-400: #4ade80;
   --color-mercado-500: #22c55e;
   --color-mercado-600: #16a34a;
   --color-mercado-700: #15803d;
@@ -14,15 +16,6 @@
   --color-mercado-900: #14532d;
   --color-mercado-950: #052e16;
 
-  --color-meta-50: #eef6ff;
-  --color-meta-100: #d9eaff;
-  --color-meta-200: #b9d7ff;
-  --color-meta-500: #0082fb;
-  --color-meta-600: #0064e0;
-  --color-meta-700: #0053bb;
-  --color-meta-800: #004b93;
-  --color-meta-900: #0a3a6b;
-  --color-meta-950: #0a2247;
 }
 
 @theme inline {
@@ -34,6 +27,8 @@
   --color-mercado-50: #eef6ff;
   --color-mercado-100: #d9eaff;
   --color-mercado-200: #b9d7ff;
+  --color-mercado-300: #7db8ff;
+  --color-mercado-400: #4d9fff;
   --color-mercado-500: #0082fb;
   --color-mercado-600: #0064e0;
   --color-mercado-700: #0053bb;
@@ -124,5 +119,23 @@
   ::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Tile propio sobre el mapa: panel-reveal (barrio-transiciones-ui). */
+.t-tile-in {
+  animation: t-tile-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+
+@keyframes t-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(var(--blur-small));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
   }
 }

@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function SubirPage() {
   return (
-    <main className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-extrabold tracking-tight">
           Actualiza tu menú
@@ -19,6 +19,6 @@ export default function SubirPage() {
         </p>
       </div>
       <MenuUploadForm />
-    </main>
+    </div>
   );
 }

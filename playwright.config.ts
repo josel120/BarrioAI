@@ -4,6 +4,8 @@ import { defineConfig } from "@playwright/test";
  * BarrioAI E2E (mobile-first PWA, hence the narrow viewport).
  *
  * - Local: starts `next dev` automatically (webServer) and tests it.
+ * - CI: builds and starts production — dev compiles on demand and its
+ *   slow hydration races the search specs; production is what ships.
  * - Any environment: set BASE_URL to test a deployed app instead
  *   (e.g. BASE_URL=https://barrioai.vercel.app skips webServer).
  * - Projects: `chromium` (bundled build; CI installs it) and `edge`
@@ -30,10 +32,10 @@ export default defineConfig({
   webServer: process.env.BASE_URL
     ? undefined
     : {
-        command: "npm run dev",
+        command: process.env.CI ? "npm run build && npm run start" : "npm run dev",
         url: "http://127.0.0.1:3000",
         reuseExistingServer: !process.env.CI,
-        timeout: 180_000,
+        timeout: process.env.CI ? 300_000 : 180_000,
       },
   projects: [
     { name: "chromium" },

@@ -8,21 +8,20 @@
  * `next/dynamic(..., { ssr: false })` (see app/buscar/page.tsx).
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import {
   CircleMarker,
   MapContainer,
   Marker,
-  Popup,
   TileLayer,
   useMap,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import type { GeoCoords, SearchResultRow } from "@/lib/search/types";
-import { formatDistance } from "@/lib/formatDistance";
 import { formatPrecio } from "@/lib/formatPrecio";
 import { buildPedidoMessage, buildWhatsAppUrl } from "@/lib/formatWhatsApp";
+import { ProductCard } from "@/components/ProductCard";
 
 /** One marker per store, collapsed from its matching products. */
 interface StoreGroup {
@@ -70,13 +69,19 @@ function groupByStore(results: SearchResultRow[]): StoreGroup[] {
  * there are no image URLs at all. `currentColor` + mercado utilities keep the
  * pin on the design-system palette (and the Meta theme override).
  */
-function createStoreIcon(): L.DivIcon {
+function createStoreIcon(precio: string | null, selected: boolean): L.DivIcon {
+  const bag = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7h12l1.5 13.5a1 1 0 0 1-1 1.1H5.5a1 1 0 0 1-1-1.1L6 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg>`;
+  const label = precio
+    ? `<span class="text-[13px] font-extrabold" style="font-variant-numeric:tabular-nums">${precio}</span>`
+    : "";
+  const size = selected ? "transform:scale(1.12);" : "";
+  const bg = selected ? "#14532d" : "#15803d";
   return L.divIcon({
     className: "barrio-pin",
-    html: `<div class="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-mercado-700 text-white shadow-lg"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7h12l1.5 13.5a1 1 0 0 1-1 1.1H5.5a1 1 0 0 1-1-1.1L6 7z"/><path d="M9 10V6a3 3 0 0 1 6 0v4"/></svg></div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    popupAnchor: [0, -18],
+    html: `<div class="flex items-center gap-1 rounded-full border-2 border-white px-2 py-1 text-white shadow-lg" style="background:${bg};width:max-content;${size}">${bag}${label}</div>`,
+    iconSize: undefined,
+    iconAnchor: [20, 14],
+    popupAnchor: [0, -14],
   });
 }
 
@@ -112,72 +117,50 @@ function RecenterOnResults({
   return null;
 }
 
-function StorePopup({ store }: { store: StoreGroup }) {
-  const whatsappUrl = buildWhatsAppUrl(
-    store.tienda_telefono,
-    buildPedidoMessage(store.top.nombre, store.tienda_nombre),
-  );
-
-  return (
-    <Popup minWidth={200} maxWidth={260}>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-bold text-zinc-900">
-          {store.tienda_nombre}
-        </p>
-        <p className="text-xs leading-5 text-zinc-600">
-          {store.top.nombre}
-          {store.top.precio != null && (
-            <>
-              {" · "}
-              <span className="font-bold tabular-nums">
-                {formatPrecio(store.top.precio, store.top.moneda)}
-              </span>
-            </>
-          )}
-        </p>
-        {store.tienda_direccion && (
-          <p className="text-xs leading-5 text-zinc-600">
-            {store.tienda_direccion}
-          </p>
-        )}
-        <p className="text-xs tabular-nums text-zinc-500">
-          {formatDistance(store.distance_m)}
-          {store.extras > 0 &&
-            ` · +${store.extras} ${store.extras === 1 ? "producto" : "productos"}`}
-        </p>
-        {whatsappUrl ? (
-          <a
-            href={whatsappUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="barrio-wa mt-1.5 inline-flex min-h-11 items-center justify-center rounded-full bg-mercado-700 px-4 py-2 text-center text-sm font-semibold text-white transition-[background-color,transform] duration-[var(--duration-quick)] hover:bg-mercado-800 active:scale-[0.98]"
-          >
-            Pedir por WhatsApp
-          </a>
-        ) : (
-          <p className="mt-1 text-xs text-zinc-500">
-            Esta tienda aún no registra WhatsApp.
-          </p>
-        )}
-      </div>
-    </Popup>
-  );
-}
-
 export interface MapSearchProps {
   user: GeoCoords;
   results: SearchResultRow[];
+  selectedId?: string | null;
+  onSelectStore?: (tiendaId: string) => void;
+  onCloseStore?: () => void;
 }
 
-export function MapSearch({ user, results }: MapSearchProps) {
+function DragControl({ active }: { active: boolean }) {
+  const map = useMap();
+  useEffect(() => {
+    if (active) map.dragging.enable(); else map.dragging.disable();
+  }, [map, active]);
+  return null;
+}
+
+function CenterOnSelected({ stores, selectedId }: { stores: StoreGroup[]; selectedId?: string | null }) {
+  const map = useMap();
+  const prev = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedId || prev.current === selectedId) return;
+    prev.current = selectedId;
+    const s = stores.find((x) => x.tienda_id === selectedId);
+    if (s) map.setView([s.lat, s.lng], Math.max(map.getZoom(), 16));
+  }, [map, stores, selectedId]);
+  return null;
+}
+
+export function MapSearch({ user, results, selectedId, onSelectStore, onCloseStore }: MapSearchProps) {
+  const [tileLocal, setTileLocal] = useState<string | null>(null);
+  const tileId = selectedId !== undefined && selectedId !== null ? selectedId : tileLocal;
   const stores = useMemo(() => groupByStore(results), [results]);
-  const storeIcon = useMemo(() => createStoreIcon(), []);
+  const tileStore = stores.find((s) => s.tienda_id === tileId) ?? null;
+  const [mapActive, setMapActive] = useState(false);
 
   return (
     <div
+      role="region"
       aria-label="Mapa de tiendas cercanas"
       className="relative z-0 h-72 w-full overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800"
     >
+      {!mapActive && (
+        <button type="button" onClick={() => setMapActive(true)} className="absolute right-2 top-2 z-[500] inline-flex min-h-11 items-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-zinc-800 shadow dark:bg-zinc-900 dark:text-zinc-100">Activar mapa</button>
+      )}
       <MapContainer
         center={[user.lat, user.lng]}
         zoom={15}
@@ -189,6 +172,8 @@ export function MapSearch({ user, results }: MapSearchProps) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <RecenterOnResults user={user} stores={stores} />
+        <DragControl active={mapActive} />
+        <CenterOnSelected stores={stores} selectedId={selectedId} />
 
         {/* User location: halo + blue dot, distinct from store pins. */}
         <CircleMarker
@@ -217,12 +202,31 @@ export function MapSearch({ user, results }: MapSearchProps) {
           <Marker
             key={store.tienda_id}
             position={[store.lat, store.lng]}
-            icon={storeIcon}
-          >
-            <StorePopup store={store} />
-          </Marker>
+            icon={createStoreIcon(
+              store.top.precio != null ? formatPrecio(store.top.precio, store.top.moneda) : null,
+              tileId === store.tienda_id,
+            )}
+            eventHandlers={{ click: () => { setTileLocal(store.tienda_id); onSelectStore?.(store.tienda_id); } }}
+          />
         ))}
       </MapContainer>
+      {tileStore && (
+        <div key={tileStore.tienda_id} className="absolute inset-x-2 bottom-7 z-[1100]">
+          <ProductCard
+            nombre={tileStore.top.nombre}
+            precio={tileStore.top.precio}
+            moneda={tileStore.top.moneda}
+            categoria={tileStore.top.categoria}
+            descripcion={tileStore.top.descripcion}
+            tiendaNombre={tileStore.tienda_nombre}
+            distanciaM={tileStore.distance_m}
+            extras={tileStore.extras}
+            whatsappUrl={buildWhatsAppUrl(tileStore.tienda_telefono, buildPedidoMessage(tileStore.top.nombre, tileStore.tienda_nombre))}
+            tiendaHref={`/tienda/${tileStore.tienda_id}`}
+            onClose={() => { setTileLocal(null); onCloseStore?.(); }}
+          />
+        </div>
+      )}
     </div>
   );
 }

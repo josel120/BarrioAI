@@ -107,7 +107,8 @@ jobs:
       # libs already in the image — no --with-deps/apt involved.
       - name: Install Playwright chromium
         run: npx playwright install chromium
-      # Starts `next dev` via webServer; the suite stubs /api/search,
+      # Builds + starts production via webServer (CI in playwright.config);
+      # the suite stubs /api/search,
       # so no API keys are needed. Chromium only: the `edge` project
       # needs MS Edge, which the image doesn't ship.
       - run: npx playwright test --project=chromium
