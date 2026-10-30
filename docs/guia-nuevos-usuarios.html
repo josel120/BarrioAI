@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>BarrioAI — Guía para nuevos usuarios</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Archivo, Arial, sans-serif; color: #18181b; font-size: 10.5pt; line-height: 1.55; margin: 0; }
+  h1, h2, h3 { line-height: 1.2; margin: 0; }
+  p { margin: 0 0 8px; }
+  .portada { text-align: left; padding: 34mm 0 10mm; }
+  .marca { font-size: 30pt; font-weight: 800; letter-spacing: -0.5px; }
+  .marca span { color: #15803d; }
+  .sub { font-size: 13pt; color: #3f3f46; margin-top: 6px; }
+  .url { display: inline-block; margin-top: 14px; background: #15803d; color: #fff; font-weight: 700; padding: 8px 18px; border-radius: 999px; font-size: 12pt; }
+  .caja { background: #f0fdf4; border-radius: 12px; padding: 12px 16px; margin: 12px 0; }
+  .caja-amber { background: #fffbeb; }
+  h2 { font-size: 16pt; font-weight: 800; margin: 22px 0 8px; page-break-after: avoid; }
+  h2 .n { color: #15803d; }
+  h3 { font-size: 11.5pt; font-weight: 700; margin: 14px 0 6px; page-break-after: avoid; }
+  ol.pasos { margin: 0; padding-left: 20px; }
+  ol.pasos li { margin-bottom: 7px; }
+  ul { margin: 0 0 8px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  .ticket { border-top: 1.5px solid #e4e4e7; border-bottom: 1.5px solid #e4e4e7; padding: 8px 2px; margin: 10px 0; }
+  .ticket .fila { display: flex; align-items: baseline; gap: 8px; }
+  .ticket .nombre { font-weight: 700; }
+  .ticket .puntos { flex: 1; border-bottom: 2px dotted #a1a1aa; }
+  .ticket .precio { font-weight: 800; color: #15803d; }
+  .ticket .meta { color: #52525b; font-size: 9.5pt; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 9.8pt; }
+  th { background: #f0fdf4; text-align: left; padding: 6px 8px; }
+  td { border-top: 1px solid #e4e4e7; padding: 6px 8px; vertical-align: top; }
+  .pie { margin-top: 26px; border-top: 1px solid #e4e4e7; padding-top: 8px; color: #71717a; font-size: 8.5pt; }
+  .salto { page-break-before: always; }
+  strong.verde { color: #15803d; }
+</style>
+</head>
+<body>
+
+<div class="portada">
+  <div class="marca">Barrio<span>AI</span></div>
+  <p class="sub">Guía para nuevos usuarios</p>
+  <p>Lo que vende tu barrio, a un toque. Busca antojos, bodegas y servicios cerca de ti, o publica el menú de tu negocio con una sola foto.</p>
+  <span class="url">barrioai.vercel.app</span>
+  <div class="caja">
+    <p style="margin:0"><strong>¿Qué necesitas?</strong> Un celular con internet (datos o wifi), cámara y ubicación (GPS). No necesitas descargar nada ni crear una cuenta: abre la dirección de arriba en tu navegador. Para que la cámara y el GPS funcionen, entra siempre desde esa dirección (empieza con <strong>https://</strong>).</p>
+  </div>
+  <h3>Esta guía tiene dos partes</h3>
+  <ul>
+    <li><strong>Si quieres comprar:</strong> parte 1, “Buscar y pedir”.</li>
+    <li><strong>Si tienes un negocio:</strong> parte 2, “Publicar tu menú”, y parte 3, “Actualizar tu menú”.</li>
+    <li>Al final: soluciones a los problemas más frecuentes.</li>
+  </ul>
+</div>
+
+<h2 class="salto"><span class="n">Parte 1 ·</span> Buscar y pedir (clientes)</h2>
+<ol class="pasos">
+  <li><strong>Abre BarrioAI</strong> y escribe lo que buscas en el buscador, por ejemplo “pollo a la brasa”. También puedes tocar una sugerencia (Ceviche, Anticuchos, Bodega…). Escribe al menos 2 letras.</li>
+  <li><strong>Acepta tu ubicación.</strong> Toca <strong>“Usar mi ubicación”</strong> y acepta el permiso: así ves lo más cercano a ti, con la distancia en metros o kilómetros.</li>
+  <li><strong>¿No quieres dar tu ubicación?</strong> Elige tu zona en la lista (Centro de Lima, Miraflores, San Isidro, Barranco, Surco, La Molina, Ate, San Juan de Lurigancho, Los Olivos o Callao). Puedes cambiarla cuando quieras.</li>
+  <li><strong>Ajusta la distancia</strong> con los botones 500 m, 1 km, 2 km o 5 km. Si no encuentras nada, amplíala a 5 km.</li>
+  <li><strong>Ordena y filtra:</strong> por más relevantes, más cercanos o menor precio, y por categoría (por ejemplo, solo “Ceviches”).</li>
+  <li><strong>Lee cada resultado como un ticket:</strong> producto, precio en soles (S/) y debajo la tienda, la distancia y la categoría.</li>
+</ol>
+<div class="ticket">
+  <div class="fila"><span class="nombre">Pollo a la brasa 1/4</span><span class="puntos"></span><span class="precio">S/ 18.00</span></div>
+  <div class="meta">Pollería de tu barrio · 350 m · Pollos</div>
+</div>
+<ol class="pasos" start="7">
+  <li><strong>Toca un resultado</strong> para ver su detalle y la dirección de la tienda. Con <strong>“Ver tienda”</strong> ves todo su menú.</li>
+  <li><strong>Revisa el mapa:</strong> tu punto es tu ubicación y cada pin es una tienda. Toca un pin para ver sus productos, precios y distancia.</li>
+  <li><strong>Pide por WhatsApp:</strong> toca el botón <strong>WhatsApp</strong> del producto. Se abre WhatsApp con un mensaje ya escrito (“Hola, quiero pedir…”); solo envíalo y coordina tu pedido con la tienda. Si la tienda aún no registró su WhatsApp, verás ese aviso: acércate directamente, la distancia está en el resultado.</li>
+</ol>
+<div class="caja caja-amber">
+  <p style="margin:0"><strong>¿Sin resultados?</strong> Prueba con otra palabra (“ceviche”, “anticuchos”, “bodega”), amplía la distancia a 5 km o revisa que tu zona sea la correcta. BarrioAI muestra tiendas que ya publicaron su menú cerca de ti: si tu barrio aún no tiene, invita a tu tienda favorita a publicar (parte 2).</p>
+</div>
+
+<h2 class="salto"><span class="n">Parte 2 ·</span> Publicar tu menú (negocios)</h2>
+<p>Publicar es gratis y toma menos de un minuto. Tu menú aparecerá en las búsquedas de tus vecinos.</p>
+<ol class="pasos">
+  <li>En la página principal toca <strong>“Publicar mi menú”</strong> (o la pestaña <strong>Vender</strong>).</li>
+  <li><strong>Marca la ubicación de tu negocio:</strong> toca <strong>“Usar mi ubicación”</strong> estando en tu local, o elige tu zona en la lista.</li>
+  <li>Toca <strong>“Tomar foto del menú”</strong> y fotografía tu menú o pizarrón: encuádralo completo, con buena luz, texto legible y sin reflejos.</li>
+  <li><strong>Espera la lectura automática</strong> (“Leyendo tu menú…”). La inteligencia artificial digitaliza tus productos y precios; suele tardar unos 20 segundos. No cierres la página.</li>
+  <li><strong>Revisa antes de publicar:</strong> corrige nombres y precios, quita lo que no va y agrega productos que falten con <strong>“Agregar producto”</strong>. Lo que dejes aquí es lo que verán tus vecinos.</li>
+  <li>Toca <strong>“Publicar menú revisado”</strong>. Al terminar verás “Tu tienda ya está en BarrioAI”.</li>
+  <li><strong class="verde">Guarda tu código de tienda.</strong> Aparece en pantalla al publicar: cópialo con el botón <strong>“Copiar código”</strong> y guárdalo en un lugar seguro. Es tu llave: sin ese código no podrás actualizar tu menú después. No lo compartas.</li>
+  <li>Toca <strong>“Ver mi tienda”</strong> para comprobar cómo quedó tu página.</li>
+</ol>
+<div class="caja">
+  <p style="margin:0"><strong>Para que te pidan por WhatsApp (muy recomendado):</strong> entra a <strong>“Actualizar un menú existente”</strong> en la página principal, completa el paso 3 con tu <strong>WhatsApp de la tienda</strong> y tu <strong>dirección</strong>, pega tu ID y tu código de tienda, y publica. Desde ese momento, tus productos mostrarán el botón de WhatsApp. Si no tienes WhatsApp, déjalo en blanco y publica igual.</p>
+</div>
+
+<h2 class="salto"><span class="n">Parte 3 ·</span> Actualizar tu menú (negocios)</h2>
+<p>¿Cambiaron tus precios o agregaste productos? Entra a <strong>“Actualizar un menú existente”</strong> y sigue los pasos numerados:</p>
+<ol class="pasos">
+  <li><strong>Foto del menú o pizarrón:</strong> sube de 1 a 3 fotos (máx. 8 MB cada una; se optimizan solas al subir).</li>
+  <li><strong>Ubicación de tu negocio:</strong> usa tu ubicación, elige tu zona, o ingresa las coordenadas manualmente (opción avanzada).</li>
+  <li><strong>Datos de tu negocio (opcional):</strong> nombre, WhatsApp, dirección. Para actualizar, pega además tu <strong>ID de tienda</strong> y tu <strong>código de tienda</strong> (te los dimos al publicar por primera vez; el código es obligatorio para actualizar).</li>
+  <li>Toca <strong>“Revisar productos de la foto”</strong>, espera la lectura y luego entra al paso <strong>4 · Revisa antes de publicar</strong>: corrige, quita o agrega productos.</li>
+  <li>Toca <strong>“Publicar menú revisado”</strong>. Si es tu primera vez, guarda el código nuevo que aparece en pantalla.</li>
+</ol>
+<h3>Consejos para una buena foto</h3>
+<ul>
+  <li>Buena luz, sin flash ni reflejos; menú completo dentro del encuadre.</li>
+  <li>Texto grande y legible: si no se lee a simple vista, la lectura automática fallará.</li>
+  <li>Precios escritos junto a cada producto. Si un producto no tiene precio, saldrá como “Sin precio”.</li>
+</ul>
+
+<h2 class="salto"><span class="n">Parte 4 ·</span> Problemas frecuentes</h2>
+<table>
+  <tr><th style="width:38%">Problema</th><th>Qué hacer</th></tr>
+  <tr><td>No me pide ubicación o dice que no hay GPS</td><td>Revisa que el navegador tenga permiso de ubicación y entra desde <strong>barrioai.vercel.app</strong>. Si no, elige tu zona en la lista: funciona igual.</td></tr>
+  <tr><td>“Sin resultados cerca de ti”</td><td>Amplía la distancia a 5 km, prueba otra palabra o revisa tu zona. Puede que aún no haya tiendas publicadas en tu barrio.</td></tr>
+  <tr><td>La tienda no tiene botón de WhatsApp</td><td>Esa tienda aún no registró su número. Puedes ir directamente: su distancia (y dirección, si la puso) están en el resultado.</td></tr>
+  <tr><td>“No se detectaron productos en la imagen”</td><td>Toma otra foto con mejor luz, más cerca y con el texto legible. Evita reflejos sobre el pizarrón.</td></tr>
+  <tr><td>La foto es muy grande</td><td>La app la optimiza sola al subir. Si aun así falla, elige una foto más pequeña (máx. 8 MB por foto).</td></tr>
+  <tr><td>“Falta el código de tu tienda” / “código no válido”</td><td>Para actualizar necesitas el ID y el código que te dimos al publicar. Revísalo y pégalo de nuevo en el paso 3.</td></tr>
+  <tr><td>La búsqueda no está disponible</td><td>Espera unos minutos e inténtalo de nuevo. Revisa también tu conexión a internet.</td></tr>
+  <tr><td>Todo carga lento</td><td>Con buena señal, menos de 1 segundo no muestra aviso; la lectura de un menú nuevo puede tardar unos 20 segundos. No cierres la página mientras publica.</td></tr>
+  <tr><td>Quiero corregir un precio ya publicado</td><td>Ve a “Actualizar un menú existente” con tu ID y código, edita el precio en la revisión y publica de nuevo.</td></tr>
+</table>
+<h3>Ten en cuenta</h3>
+<ul>
+  <li>Tu ubicación solo se usa para mostrarte tiendas cercanas; no necesitas crear una cuenta.</li>
+  <li>Al publicar, el comerciante acepta que su menú sea visible en las búsquedas cercanas.</li>
+  <li>Los precios se muestran en soles (S/) tal como están en el menú fotografiado; confírmalos siempre con la tienda por WhatsApp.</li>
+  <li>BarrioAI funciona mejor en el celular, con datos o wifi.</li>
+</ul>
+<div class="caja">
+  <p style="margin:0"><strong>Resumen en 10 segundos.</strong> Clientes: busca, acepta tu ubicación y pide por WhatsApp. Negocios: foto del menú, revisa, publica y <strong>guarda tu código de tienda</strong>. Todo desde <strong>barrioai.vercel.app</strong>.</p>
+</div>
+
+<p class="pie">BarrioAI — Guía para nuevos usuarios · barrioai.vercel.app · Hecha para los negocios y vecinos del barrio.</p>
+
+</body>
+</html>
