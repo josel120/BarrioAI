@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CameraIcon } from "@/components/icons";
 import { LocationPicker } from "@/components/LocationPicker";
 import { useGeolocation } from "@/lib/hooks/useGeolocation";
+import { dedupeProductos } from "@/lib/dedup";
 
 type Status = "idle" | "extracting" | "review" | "success" | "error";
 interface Item { name: string; price: number | null; category?: string; description?: string | null }
@@ -34,10 +35,18 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [currency, setCurrency] = useState("PEN");
+  const [storeName, setStoreName] = useState<string | null>(null);
+  const [nombre, setNombre] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [direccion, setDireccion] = useState("");
   const [result, setResult] = useState<UploadResponse | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [enlaceCopiado, setEnlaceCopiado] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [duplicadaId, setDuplicadaId] = useState<string | null>(null);
   const busy = status === "extracting" || publishing;
+  const tiendaUrl = result ? `${typeof window !== "undefined" ? window.location.origin : ""}/tienda/${result.tienda_id}` : "";
+  const textoCompartir = result ? `Ya estoy en BarrioAI. Mira mi menú y pídeme por WhatsApp: ${tiendaUrl}` : "";
 
   const extraer = useCallback(async (file: File) => {
     if (!coords) { setError("Primero usa tu ubicación o elige tu zona, y luego toma la foto."); return; }
@@ -51,7 +60,10 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "No pudimos leer tu menú. Toma otra foto con buena luz.");
-      setItems(data.data.items as Item[]); setCurrency(data.data.currency as string);
+      setItems(dedupeProductos(data.data.items as Item[])); setCurrency(data.data.currency as string);
+      const detectado = typeof data.data.store_name === "string" ? data.data.store_name : null;
+      setStoreName(detectado);
+      if (detectado) setNombre((prev) => prev || detectado);
       setStatus("review");
     } catch (err) {
       setStatus("error");
@@ -73,19 +85,23 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
 
   async function publicar() {
     if (!fileRef.current || !coords) return;
-    const limpios = items.map((i) => ({ ...i, name: i.name.trim() })).filter((i) => i.name !== "");
+    const limpios = dedupeProductos(items.map((i) => ({ ...i, name: i.name.trim() })).filter((i) => i.name !== ""));
     if (limpios.length === 0) { setError("Agrega al menos un producto antes de publicar."); return; }
-    setError(null); setPublishing(true);
+    setError(null); setDuplicadaId(null); setPublishing(true);
     try {
       const compressed = await compressImage(fileRef.current);
       const form = new FormData();
       form.append("image", compressed, "menu.jpg");
-      form.append("items", JSON.stringify({ store_name: null, currency, items: limpios }));
+      form.append("items", JSON.stringify({ store_name: nombre.trim() || storeName, currency, items: limpios }));
+      if (nombre.trim() !== "") form.append("nombre", nombre.trim());
+      if (telefono.trim() !== "") form.append("telefono", telefono.trim());
+      if (direccion.trim() !== "") form.append("direccion", direccion.trim());
       form.append("lat", String(coords.lat)); form.append("lng", String(coords.lng));
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const data = await res.json();
-      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "No pudimos publicar. Intenta de nuevo.");
+      if (!res.ok) { if (res.status === 409 && typeof data.tienda_id === "string") setDuplicadaId(data.tienda_id); throw new Error(typeof data.error === "string" ? data.error : "No pudimos publicar. Intenta de nuevo."); }
       setPublishing(false); setResult(data as UploadResponse); setStatus("success"); onSuccess?.(data);
+      try { localStorage.setItem("barrioai-mi-tienda", JSON.stringify({ tienda_id: (data as UploadResponse).tienda_id, claim_token: (data as UploadResponse).claim_token ?? null })); } catch { /* sin almacenamiento: el código sigue visible en pantalla */ }
     } catch (err) {
       setPublishing(false);
       setStatus("error");
@@ -98,6 +114,12 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-extrabold tracking-tight">Publica tu menú</h1>
         <p className="text-base leading-7 text-zinc-600 dark:text-zinc-300">Una foto de tu menú o pizarrón. Nosotros lo digitalizamos y tú lo revisas antes de publicar.</p>
+        <ul className="flex flex-wrap gap-2" aria-label="Beneficios">
+          {["Gratis", "Sin comisión", "Sin crear cuenta", "Listo en 1 minuto"].map((b) => (
+            <li key={b} className="rounded-full bg-mercado-50 px-3 py-1.5 text-xs font-semibold text-mercado-800 dark:bg-mercado-950 dark:text-mercado-300">{b}</li>
+          ))}
+        </ul>
+        <p className="text-sm leading-6 text-zinc-600 dark:text-zinc-300">Para una buena foto: encadra todo el menú, busca buena luz, evita reflejos y acércate hasta que el texto se lea.</p>
       </div>
 
       <LocationPicker coords={coords} error={geoError} locating={locating} onRequest={request} onManual={setManual} idPrefix="vender-zona" />
@@ -138,6 +160,23 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
             ))}
           </ul>
           <button type="button" onClick={() => setItems([...items, { name: "", price: null, category: "Otros", description: null }])} className="inline-flex min-h-11 items-center self-start rounded-full border border-mercado-700 px-4 py-2 text-sm font-semibold text-mercado-800 dark:border-mercado-500 dark:text-mercado-300">Agregar producto</button>
+          <div className="flex flex-col gap-3 border-t border-mercado-100 pt-3 dark:border-mercado-900">
+            <p className="text-sm font-semibold">Datos para que te pidan</p>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="v-nombre-tienda" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Nombre de tu negocio</label>
+              <input id="v-nombre-tienda" name="nombre" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Pollería El Ejemplo" autoComplete="organization" className="min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="v-telefono" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Tu WhatsApp</label>
+              <input id="v-telefono" name="telefono" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="Ej. 999 888 777" autoComplete="tel" inputMode="tel" aria-describedby="v-telefono-ayuda" className="min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900" />
+              <p id="v-telefono-ayuda" className="text-sm text-zinc-600 dark:text-zinc-300">Con este número tus vecinos te pedirán desde BarrioAI. Sin WhatsApp podrán verte, pero no pedirte en un toque.</p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label htmlFor="v-direccion" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Dirección <span className="font-normal text-zinc-500">(opcional)</span></label>
+              <input id="v-direccion" name="direccion" type="text" value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Av. Ejemplo 123, tu barrio" autoComplete="street-address" maxLength={200} className="min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900" />
+            </div>
+            {telefono.trim() === "" && <p className="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950 dark:text-amber-200">Aún no agregaste WhatsApp. Puedes publicar igual, pero te recomendamos agregarlo para recibir pedidos.</p>}
+          </div>
           <button type="button" onClick={() => void publicar()} disabled={busy} className="min-h-11 w-full rounded-full bg-mercado-700 px-5 py-3 text-base font-semibold text-white disabled:opacity-60">{publishing ? "Publicando…" : "Publicar menú revisado"}</button>
         </section>
       )}
@@ -151,15 +190,19 @@ export default function MerchantCapture({ onSuccess }: { onSuccess?: (r: UploadR
               <>
                 <p className="break-all text-sm text-zinc-700 dark:text-zinc-200">Guarda tu código de tienda: <span className="font-mono font-bold">{result.claim_token}</span></p>
                 <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(result.claim_token!); setCopiado(true); } catch { setCopiado(false); } }} className="inline-flex min-h-11 items-center self-start rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white">{copiado ? "Código copiado" : "Copiar código"}</button>
+                <p className="text-sm text-zinc-600 dark:text-zinc-300">También lo guardamos en este celular para que actualices tu menú sin buscarlo. Guárdalo igual en un lugar seguro.</p>
               </>
             )}
             <div className="flex flex-wrap gap-2">
               <Link href={`/tienda/${result.tienda_id}`} className="inline-flex min-h-11 items-center rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white">Ver mi tienda</Link>
+              <a href={`https://wa.me/?text=${encodeURIComponent(textoCompartir)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full border border-mercado-700 px-4 py-2 text-sm font-semibold text-mercado-800 dark:border-mercado-500 dark:text-mercado-300">Compartir por WhatsApp</a>
+              <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(tiendaUrl); setEnlaceCopiado(true); } catch { setEnlaceCopiado(false); } }} className="inline-flex min-h-11 items-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold dark:border-zinc-600">{enlaceCopiado ? "Enlace copiado" : "Copiar enlace de mi tienda"}</button>
               <Link href="/buscar" className="inline-flex min-h-11 items-center text-sm font-semibold text-mercado-800 underline-offset-4 hover:underline dark:text-mercado-200">Ver cómo te encuentran tus vecinos</Link>
             </div>
           </div>
         )}
         {error && <p className="rounded-xl bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
+        {duplicadaId && <Link href={`/tienda/${duplicadaId}`} className="inline-flex min-h-11 items-center self-start rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white">Ver la tienda ya publicada</Link>}
       </div>
 
       <p className="text-center text-xs leading-5 text-zinc-500 dark:text-zinc-400">Al publicar aceptas que tu menú sea visible en las búsquedas cercanas.</p>

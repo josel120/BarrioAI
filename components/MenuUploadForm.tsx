@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
 import { formatPrecio } from "@/lib/formatPrecio";
+import { dedupeProductos } from "@/lib/dedup";
 import { ResultsSkeleton } from "@/components/SearchSkeletons";
 import { LocationPicker } from "@/components/LocationPicker";
 
@@ -46,6 +47,7 @@ function messageForStatus(status: number): string {
     case 403: return "El código de tienda no es válido. Revísalo e intenta de nuevo.";
     case 404: return "No se encontró la tienda indicada. Verifica el ID de tienda.";
     case 413: return "La imagen supera el tamaño permitido. Elige una foto más pequeña.";
+    case 409: return "Este menú ya está publicado. No lo duplicamos: si es tu tienda, ingresa su ID y código en el paso 3 para actualizarla.";
     case 422: return "No se detectaron productos en la imagen. Toma otra foto del menú, con buena luz y texto legible.";
     case 429: return "Demasiadas subidas. Espera un momento e intenta de nuevo.";
     case 502: return "La IA devolvió una respuesta inválida. Intenta de nuevo.";
@@ -105,6 +107,18 @@ export default function MenuUploadForm() {
   }, []);
 
   useEffect(() => () => { previewsRef.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const raw = localStorage.getItem("barrioai-mi-tienda");
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { tienda_id?: unknown; claim_token?: unknown };
+        if (typeof saved.tienda_id === "string") setTiendaId((prev) => prev || (saved.tienda_id as string));
+        if (typeof saved.claim_token === "string") setClaimToken((prev) => prev || (saved.claim_token as string));
+      } catch { /* sin tienda guardada en este celular */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []).slice(0, 3);
@@ -165,10 +179,10 @@ export default function MenuUploadForm() {
         }
         const json = (await res.json()) as { data: ExtractData };
         storeName = storeName ?? json.data.store_name; currency = json.data.currency;
-        for (const item of json.data.items) if (!merged.some((m) => m.name.toLowerCase() === item.name.toLowerCase())) merged.push(item);
+        merged.push(...json.data.items);
       }
       if (merged.length === 0) throw new Error(messageForStatus(422));
-      setReview({ store_name: storeName, currency, items: merged });
+      setReview({ store_name: storeName, currency, items: dedupeProductos(merged) });
       if (storeName && !nombre) setNombre(storeName);
     } catch (err) {
       if ((err as Error).name !== "AbortError") setSubmitError(err instanceof Error ? err.message : "Error de red. Revisa tu conexión e intenta de nuevo.");
@@ -177,7 +191,7 @@ export default function MenuUploadForm() {
 
   async function publicar() {
     if (!review) return;
-    const limpios = review.items.map((i) => ({ ...i, name: i.name.trim() })).filter((i) => i.name !== "");
+    const limpios = dedupeProductos(review.items.map((i) => ({ ...i, name: i.name.trim() })).filter((i) => i.name !== ""));
     if (limpios.length === 0) { setSubmitError("Agrega al menos un producto antes de publicar."); return; }
     const controller = new AbortController();
     abortRef.current = controller;
@@ -194,7 +208,8 @@ export default function MenuUploadForm() {
       if (direccion.trim() !== "") formData.append("direccion", direccion.trim());
       formData.append("lat", String(coords!.lat)); formData.append("lng", String(coords!.lng));
       const res = await fetch("/api/upload", { method: "POST", body: formData, signal: controller.signal });
-      if (res.status === 201) { setResult((await res.json()) as UploadSuccess); return; }
+      if (res.status === 201) { const ok = (await res.json()) as UploadSuccess; setResult(ok); try { localStorage.setItem("barrioai-mi-tienda", JSON.stringify({ tienda_id: ok.tienda_id, claim_token: ok.claim_token ?? null })); } catch { /* el código sigue visible en pantalla */ } return; }
+      if (res.status === 409) { try { const dup = (await res.clone().json()) as { tienda_id?: unknown }; if (typeof dup?.tienda_id === "string") setTiendaId(dup.tienda_id); } catch { /* el error genérico sigue abajo */ } }
       let serverError = "";
       try { const j = (await res.json()) as { error?: unknown }; if (typeof j?.error === "string") serverError = j.error; } catch { serverError = ""; }
       throw new Error(serverError || messageForStatus(res.status));
@@ -271,7 +286,7 @@ export default function MenuUploadForm() {
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor="nombre" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Nombre del negocio</label>
-          <input id="nombre" name="nombre" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Taquería El Barrio" autoComplete="organization" className="min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900" />
+          <input id="nombre" name="nombre" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Pollería El Ejemplo" autoComplete="organization" className="min-h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-base dark:border-zinc-700 dark:bg-zinc-900" />
         </div>
         <div className="flex flex-col gap-1">
           <label htmlFor="telefono" className="text-sm font-medium text-zinc-700 dark:text-zinc-200">WhatsApp de la tienda</label>

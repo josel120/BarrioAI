@@ -26,10 +26,10 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
 
   const input = page.getByRole("searchbox", { name: "¿Qué buscas?" });
   await expect(input).toBeVisible();
-  await input.fill("tacos al pastor");
+  await input.fill("pollo a la brasa");
   // Guard: the typed query must survive hydration (a client-side tree
   // regeneration would wipe it and the search click would silently no-op).
-  await expect(input).toHaveValue("tacos al pastor");
+  await expect(input).toHaveValue("pollo a la brasa");
 
   // The button enables once the geolocation hook resolves; fail fast and
   // explicitly here if the browser never provides coordinates.
@@ -55,16 +55,16 @@ test("semantic search shows ticket list and map with WhatsApp ordering", async (
 
   // Ticket list from the stubbed semantic results.
   await expect(page.getByText("3 resultados cerca de ti")).toBeVisible();
-  await expect(page.getByText("Tacos al pastor").first()).toBeVisible();
+  await expect(page.getByText("Pollo a la brasa 1/4").first()).toBeVisible();
 
   // Map: one pin per store, popup with price/distance/extras/WhatsApp link.
   await assertMapResults(page, {
-    storeName: "Taquería La Esquina",
-    productName: "Tacos al pastor",
-    priceText: "S/ 12.50",
+    storeName: "Pollería El Ejemplo (demo)",
+    productName: "Pollo a la brasa 1/4",
+    priceText: "S/ 18.00",
     distanceText: "148 m",
     extrasText: "+1 producto",
-    waHrefPrefix: "https://wa.me/51999888777?text=",
+    waHrefPrefix: "https://wa.me/51999111222?text=",
   });
 
   // Store without a phone shows the fallback instead of a link.
@@ -87,7 +87,7 @@ test("ticket row expands to store detail with address and WhatsApp", async ({
   await page.goto("/buscar", { waitUntil: "domcontentloaded" });
 
   const input = page.getByRole("searchbox", { name: "¿Qué buscas?" });
-  await input.fill("tacos al pastor");
+  await input.fill("pollo a la brasa");
   const searchButton = page.getByRole("button", {
     name: "Buscar",
     exact: true,
@@ -100,7 +100,7 @@ test("ticket row expands to store detail with address and WhatsApp", async ({
   expect(searchStub.hits()).toBeGreaterThan(0);
 
   const toggle = page.getByRole("button", {
-    name: "Tacos al pastor en Taquería La Esquina: ver detalle",
+    name: "Pollo a la brasa 1/4 en Pollería El Ejemplo (demo): ver detalle",
   });
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await toggle.click();
@@ -109,15 +109,15 @@ test("ticket row expands to store detail with address and WhatsApp", async ({
   const detail = page.locator(
     `[id="detalle-11111111-1111-1111-1111-111111111111"]`,
   );
-  await expect(detail.getByText("Av. Principal 123")).toBeVisible();
-  await expect(detail.getByText("Con piña y cilantro")).toBeVisible();
+  await expect(detail.getByText("Calle Ejemplo 100, Miraflores")).toBeVisible();
+  await expect(detail.getByText("Con papas fritas y ensalada")).toBeVisible();
   await expect(
     detail.getByRole("link", { name: "Ver tienda" }),
   ).toBeVisible();
   // WhatsApp se ve sin expandir: es el cierre del golden path.
   await expect(
-    page.getByRole("link", { name: "Pedir Tacos al pastor por WhatsApp" }),
-  ).toHaveAttribute("href", /^https:\/\/wa\.me\/51999888777\?text=/);
+    page.getByRole("link", { name: "Pedir Pollo a la brasa 1/4 por WhatsApp" }),
+  ).toHaveAttribute("href", /^https:\/\/wa\.me\/51999111222\?text=/);
 });
 
 test("query de una letra muestra el hint en vez de fallar en silencio", async ({ page }) => {

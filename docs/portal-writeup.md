@@ -78,6 +78,7 @@ Meta no responde; el camino normal nunca lo toca.
 
 ## Datos de la demo
 
-Todas las tiendas visibles en la demo son inventadas (Pollería El
-Ejemplo, Cevichería La Muestra, Bodega Don Ejemplo — Miraflores), con
+Todas las tiendas visibles en la demo son inventadas y peruanas (Pollería El
+Ejemplo, Cevichería La Muestra, Bodega Don Ejemplo,
+Anticuchería El Ejemplo, Chifa El Ejemplo, Sanguchería La Muestra — Miraflores), con
 teléfonos de ejemplo. Ningún dato real de comerciantes.

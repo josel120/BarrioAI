@@ -9,7 +9,7 @@ test.use({
 async function search(page: import("@playwright/test").Page) {
   await page.goto("/buscar", { waitUntil: "domcontentloaded" });
   const input = page.getByRole("searchbox", { name: "¿Qué buscas?" });
-  await input.fill("tacos al pastor");
+  await input.fill("pollo a la brasa");
   const button = page.getByRole("button", { name: "Buscar", exact: true });
   await expect(button).toBeEnabled({ timeout: 15_000 });
   await button.click();
