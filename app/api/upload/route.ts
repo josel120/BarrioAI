@@ -8,6 +8,12 @@ import {
 } from "@/lib/ai/prompts";
 import { embedTexts } from "@/lib/ai/embeddings";
 import { checkRateLimit, clientIp } from "@/lib/rateLimit";
+import {
+  buscarDuplicado,
+  dedupeProductos,
+  RADIO_DUPLICADO_M,
+  type CandidataDuplicada,
+} from "@/lib/dedup";
 import { LIMITS } from "@/lib/limits";
 import { logError, logInfo } from "@/lib/log";
 
@@ -94,6 +100,10 @@ function verifyClaimToken(token: string, storedHash: string): boolean {
   const a = Buffer.from(hashClaimToken(token), "hex");
   const b = Buffer.from(storedHash, "hex");
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function bufferToDataUrl(buffer: Buffer, type: string): string {
+  return `data:${type};base64,${buffer.toString("base64")}`;
 }
 
 async function fileToDataUrl(file: File): Promise<string> {
@@ -185,6 +195,30 @@ async function generateEmbeddings(
   return embedTexts(texts);
 }
 
+interface CandidataRpc {
+  id: string;
+  nombre: string;
+  foto_hash: string | null;
+  claim_hash: string | null;
+  distancia_m: number | null;
+  productos: { nombre: string; precio: number | null }[] | null;
+}
+
+function respuestaDuplicada(candidata: CandidataDuplicada) {
+  return NextResponse.json(
+    {
+      error:
+        `Este menú ya está publicado como "${candidata.nombre}". ` +
+        "No lo duplicamos. Si es tu tienda, actualízala con tu ID y código de tienda; " +
+        "si es otro negocio, publica desde la página de tu tienda con su ubicación exacta.",
+      duplicate: true,
+      tienda_id: candidata.id,
+      tienda_nombre: candidata.nombre,
+    },
+    { status: 409 },
+  );
+}
+
 // --- Route Handler ---
 export async function POST(req: NextRequest) {
   const requestId = crypto.randomUUID();
@@ -218,7 +252,7 @@ export async function POST(req: NextRequest) {
       );
     }
     const image = formData.get("image") as File | null;
-    const tiendaId = formData.get("tiendaId") as string | null;
+    let tiendaId = formData.get("tiendaId") as string | null;
     const nombreForm = formData.get("nombre") as string | null;
     const claimToken = formData.get("claimToken") as string | null;
     const lat = parseFloat(formData.get("lat") as string);
@@ -276,7 +310,8 @@ export async function POST(req: NextRequest) {
     const phase = formData.get("phase") as string | null;
     const itemsRaw = formData.get("items") as string | null;
     if (phase === "extract") {
-      const extractedOnly = await fileToDataUrl(image).then(callMetaVision);
+      const extraida = await fileToDataUrl(image).then(callMetaVision);
+      const extractedOnly = { ...extraida, items: dedupeProductos(extraida.items) };
       if (extractedOnly.items.length === 0)
         return NextResponse.json({ error: "No se detectaron productos en la imagen" }, { status: 422 });
       return NextResponse.json({ data: extractedOnly }, { status: 200 });
@@ -293,10 +328,69 @@ export async function POST(req: NextRequest) {
     // supabaseRef lets the outer catch clean up the uploaded blob.
     supabaseRef = supabase;
 
+    // 2. Huella de la foto + extracción. Esto va ANTES de subir a
+    // Storage o crear la tienda: si la publicación es un duplicado, no
+    // gastamos subida ni embeddings y no nace otra tienda en el mapa.
+    const imageBuffer = Buffer.from(await image.arrayBuffer());
+    const fotoHash = createHash("sha256").update(imageBuffer).digest("hex");
+    const extraidoCrudo =
+      reviewed ?? (await callMetaVision(bufferToDataUrl(imageBuffer, image.type)));
+    const extracted = {
+      ...extraidoCrudo,
+      items: dedupeProductos(
+        extraidoCrudo.items.map((p) => ({ ...p, name: p.name.trim() })),
+      ),
+    };
+    if (extracted.items.length === 0) {
+      return NextResponse.json(
+        { error: "No se detectaron productos en la imagen" },
+        { status: 422 },
+      );
+    }
+
+    // 2a. Deduplicación: sin tiendaId, la misma foto (o una foto nueva
+    // del mismo menú en el mismo lugar) no crea otra tienda. Si quien
+    // publica trae el código de esa tienda, se actualiza esa; si no,
+    // 409 para no sobrescribir la tienda de otra persona sin permiso.
+    let publishTiendaId = tiendaId;
+    if (!publishTiendaId) {
+      const { data: candidatasData, error: candidatasError } =
+        await supabase.rpc("buscar_candidatas_tienda_duplicada", {
+          p_lat: lat,
+          p_lng: lng,
+          p_radio_m: RADIO_DUPLICADO_M,
+          p_foto_hash: fotoHash,
+        });
+      // Si la RPC no existe aún (migración sin aplicar), se sigue: el
+      // índice único de foto_hash igual frena el duplicado exacto.
+      if (!candidatasError && candidatasData) {
+        const candidatas: CandidataDuplicada[] = (
+          candidatasData as CandidataRpc[]
+        ).map((c) => ({
+          id: c.id,
+          nombre: c.nombre,
+          foto_hash: c.foto_hash,
+          distancia_m: c.distancia_m,
+          productos: c.productos ?? [],
+        }));
+        const duplicado = buscarDuplicado(
+          candidatas,
+          extracted.items.map((p) => ({ name: p.name, price: p.price })),
+          nombreForm || extracted.store_name,
+          fotoHash,
+        );
+        if (duplicado) {
+          if (!claimToken) return respuestaDuplicada(duplicado.candidata);
+          publishTiendaId = duplicado.candidata.id;
+          tiendaId = duplicado.candidata.id;
+        }
+      }
+    }
+
     // Free-tier global caps: refuse NEW tiendas once the demo quota is
     // full (updates to existing tiendas stay allowed). Two head-counts
     // per publish are negligible next to the vision/embedding calls.
-    if (!tiendaId) {
+    if (!publishTiendaId) {
       const [tiendasCount, productosCount] = await Promise.all([
         supabase.from("tiendas").select("id", { count: "exact", head: true }),
         supabase.from("productos").select("id", { count: "exact", head: true }),
@@ -312,29 +406,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Parallel Execution: Meta Inference + Storage Upload (Low Latency)
-    const dataUrlPromise = fileToDataUrl(image);
+    // 2b. Storage Upload (solo cuando ya sabemos que no es duplicado)
     const fileName = `${crypto.randomUUID()}.${ALLOWED_IMAGE_TYPES.get(image.type)!}`;
-
-    const [extracted, storageResult] = await Promise.all([
-      reviewed ? Promise.resolve(reviewed) : dataUrlPromise.then(callMetaVision),
-      supabase.storage
-        .from("menus")
-        .upload(fileName, image, { contentType: image.type, upsert: false }),
-    ]);
+    const storageResult = await supabase.storage
+      .from("menus")
+      .upload(fileName, image, { contentType: image.type, upsert: false });
 
     if (storageResult.error)
       throw new Error(`Storage upload failed: ${storageResult.error.message}`);
     uploadedPath = storageResult.data?.path ?? null;
-
-    if (extracted.items.length === 0) {
-      if (uploadedPath)
-        await supabase.storage.from("menus").remove([uploadedPath]);
-      return NextResponse.json(
-        { error: "No se detectaron productos en la imagen" },
-        { status: 422 },
-      );
-    }
 
     const fotoMenuUrl = storageResult.data
       ? supabase.storage.from("menus").getPublicUrl(storageResult.data.path)
@@ -342,55 +422,56 @@ export async function POST(req: NextRequest) {
       : null;
 
     // 3a. Ownership: updating an existing tienda requires its claim token.
-// The service_role client bypasses RLS, so this check is the only guard
-// against overwriting someone else's tienda. Legacy tiendas without a
-// hash are claimed by the first token presented.
-let newClaimToken: string | null = null;
-let replacedFotoPath: string | null = null;
-if (tiendaId) {
-  if (!claimToken)
-    return NextResponse.json(
-      { error: "Falta el código de tu tienda para actualizarla" },
-      { status: 401 },
-    );
-  const { data: existing } = await supabase
-    .from("tiendas")
-    .select("claim_hash, foto_menu_url")
-    .eq("id", tiendaId)
-    .single();
-  // Remember the previous menu photo so a successful update can delete
-  // it; otherwise every update leaks one orphan blob into the 1 GB bucket.
-  if (existing?.foto_menu_url) {
-    const marker = "/menus/";
-    const idx = existing.foto_menu_url.indexOf(marker);
-    if (idx >= 0) replacedFotoPath = existing.foto_menu_url.slice(idx + marker.length);
-  }
-  if (!existing)
-    return NextResponse.json(
-      { error: "No se encontró la tienda indicada" },
-      { status: 404 },
-    );
-  if (existing.claim_hash) {
-    if (!verifyClaimToken(claimToken, existing.claim_hash))
-      return NextResponse.json(
-        { error: "El código de tienda no es válido" },
-        { status: 403 },
-      );
-  } else {
-    await supabase
-      .from("tiendas")
-      .update({ claim_hash: hashClaimToken(claimToken) })
-      .eq("id", tiendaId)
-      .is("claim_hash", null);
-  }
-} else {
-  newClaimToken = randomBytes(32).toString("base64url");
-}
+    // The service_role client bypasses RLS, so this check is the only guard
+    // against overwriting someone else's tienda. Legacy tiendas without a
+    // hash are claimed by the first token presented.
+    let newClaimToken: string | null = null;
+    let replacedFotoPath: string | null = null;
+    if (tiendaId) {
+      if (!claimToken)
+        return NextResponse.json(
+          { error: "Falta el código de tu tienda para actualizarla" },
+          { status: 401 },
+        );
+      const { data: existing } = await supabase
+        .from("tiendas")
+        .select("claim_hash, foto_menu_url")
+        .eq("id", tiendaId)
+        .single();
+      // Remember the previous menu photo so a successful update can delete
+      // it; otherwise every update leaks one orphan blob into the 1 GB bucket.
+      if (existing?.foto_menu_url) {
+        const marker = "/menus/";
+        const idx = existing.foto_menu_url.indexOf(marker);
+        if (idx >= 0) replacedFotoPath = existing.foto_menu_url.slice(idx + marker.length);
+      }
+      if (!existing)
+        return NextResponse.json(
+          { error: "No se encontró la tienda indicada" },
+          { status: 404 },
+        );
+      if (existing.claim_hash) {
+        if (!verifyClaimToken(claimToken, existing.claim_hash))
+          return NextResponse.json(
+            { error: "El código de tienda no es válido" },
+            { status: 403 },
+          );
+      } else {
+        await supabase
+          .from("tiendas")
+          .update({ claim_hash: hashClaimToken(claimToken) })
+          .eq("id", tiendaId)
+          .is("claim_hash", null);
+      }
+    } else {
+      newClaimToken = randomBytes(32).toString("base64url");
+    }
 
-// 3. Upsert Tienda (PostGIS Point: Note lng is X, lat is Y)
+    // 3. Upsert Tienda (PostGIS Point: Note lng is X, lat is Y)
     const tiendaPayload = {
       nombre: nombreForm || extracted.store_name || "Mi Tienda",
       foto_menu_url: fotoMenuUrl,
+      foto_hash: fotoHash,
       ubicacion: `POINT(${lng} ${lat})`,
       ...(telefono !== undefined ? { telefono } : {}),
       ...(direccion !== undefined ? { direccion } : {}),
@@ -410,6 +491,20 @@ if (tiendaId) {
           .select("id")
           .single();
 
+    // Dos subidas idénticas a la vez: una ganó el índice único de
+    // foto_hash. La perdedora es un duplicado, no un error 500.
+    if ((tiendaError as { code?: string } | null)?.code === "23505") {
+      if (uploadedPath)
+        await supabase.storage.from("menus").remove([uploadedPath]).catch(() => undefined);
+      return NextResponse.json(
+        {
+          error:
+            "Este menú ya está publicado. No lo duplicamos. Si es tu tienda, actualízala con tu ID y código de tienda.",
+          duplicate: true,
+        },
+        { status: 409 },
+      );
+    }
     if (tiendaError || !tienda)
       throw new Error(`Tienda upsert failed: ${tiendaError?.message}`);
 

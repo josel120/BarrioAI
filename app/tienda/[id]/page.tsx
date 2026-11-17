@@ -12,6 +12,7 @@ export default function TiendaPage() {
   const { id } = useParams<{ id: string }>();
   const [data, setData] = useState<{ tienda: Tienda; productos: Prod[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -36,6 +37,8 @@ export default function TiendaPage() {
   if (!data) return <p aria-live="polite" className="text-sm text-zinc-600 dark:text-zinc-300">Cargando tienda…</p>;
 
   const { tienda, productos } = data;
+  const tiendaUrl = typeof window !== "undefined" ? window.location.href : "";
+  const textoCompartir = `${tienda.nombre} ya está en BarrioAI. Mira el menú y pide por WhatsApp: ${tiendaUrl}`;
   return (
     <div className="flex flex-col gap-4">
       <Link href="/buscar" className="inline-flex min-h-11 items-center text-sm font-semibold text-mercado-800 dark:text-mercado-300">← Volver a buscar</Link>
@@ -64,6 +67,14 @@ export default function TiendaPage() {
         </ul>
       )}
       {!tienda.telefono && <p className="text-sm text-zinc-500">Esta tienda aún no registra WhatsApp.</p>}
+      <div className="flex flex-col gap-2 rounded-2xl bg-mercado-50 p-4 dark:bg-mercado-950">
+        <p className="text-sm font-semibold">Comparte esta tienda</p>
+        <div className="flex flex-wrap gap-2">
+          <a href={`https://wa.me/?text=${encodeURIComponent(textoCompartir)}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center rounded-full bg-mercado-700 px-4 py-2 text-sm font-semibold text-white">Compartir por WhatsApp</a>
+          <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(tiendaUrl); setCopiado(true); } catch { setCopiado(false); } }} className="inline-flex min-h-11 items-center rounded-full border border-zinc-300 px-4 py-2 text-sm font-semibold dark:border-zinc-600">{copiado ? "Enlace copiado" : "Copiar enlace"}</button>
+        </div>
+        <Link href="/subir" className="inline-flex min-h-11 items-center text-sm font-semibold text-mercado-800 underline-offset-4 hover:underline dark:text-mercado-200">¿Es tu tienda? Actualiza tu menú</Link>
+      </div>
     </div>
   );
 }

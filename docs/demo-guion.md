@@ -62,6 +62,9 @@ Ajustar la duración total a lo que pida el portal (confirmado el 28 oct).
 | Pollería El Ejemplo (demo) | Pollo a la brasa 1/4 | 51999111222 |
 | Cevichería La Muestra (demo) | Ceviche clasico | 51999333444 |
 | Bodega Don Ejemplo (demo) | Pan frances | 51999555666 |
+| Anticuchería El Ejemplo (demo) | Anticuchos de corazon | 51999777888 |
+| Chifa El Ejemplo (demo) | Arroz chaufa de pollo | 51999888999 |
+| Sanguchería La Muestra (demo) | Pan con chicharron | 51999000111 |
 
 Plan B si la red falla: estas tiendas ya están publicadas; la demo puede
 empezar directo en la búsqueda (paso 1:05) y mostrar la publicación
